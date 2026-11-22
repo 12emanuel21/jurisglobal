@@ -1,21 +1,11 @@
-import { Compass, HeartHandshake, MessagesSquare } from 'lucide-react';
+import { Handshake, Scale, ShieldCheck, Target } from 'lucide-react';
 
+/** Atributos diferenciadores de JurisGlobal */
 const PILLARS = [
-  {
-    icon: HeartHandshake,
-    title: 'Trato humano',
-    text: 'Te escuchamos sin juicios ni presión. La cobranza la entendemos como un acuerdo y una solución, no como una amenaza.',
-  },
-  {
-    icon: Compass,
-    title: 'Prevención',
-    text: 'Te orientamos a tiempo para que entiendas tus opciones antes de que una situación legal o financiera se complique.',
-  },
-  {
-    icon: MessagesSquare,
-    title: 'Claridad',
-    text: 'Te explicamos cada paso en lenguaje sencillo, con información honesta sobre lo que es viable en tu caso.',
-  },
+  { icon: Handshake, title: 'Cercanía humana', text: 'Escuchamos tu situación y te brindamos atención personalizada.' },
+  { icon: Scale, title: 'Respaldo profesional', text: 'Conocimiento jurídico y financiero al servicio de tus intereses.' },
+  { icon: ShieldCheck, title: 'Confianza y transparencia', text: 'Orientación clara, responsable y honesta en cada etapa.' },
+  { icon: Target, title: 'Soluciones integrales', text: 'Estrategias adaptadas a las necesidades de cada persona y empresa.' },
 ];
 
 const VALUES = ['Tranquilidad', 'Confianza', 'Compromiso', 'Prevención', 'Excelencia', 'Humanidad', 'Innovación'];
@@ -29,7 +19,7 @@ export function WhyUs() {
   return (
     <section id="nosotros" className="scroll-mt-20 bg-slate-50 py-16 sm:py-20" aria-labelledby="nosotros-title">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
+        <div className="grid gap-10 lg:grid-cols-2 lg:items-stretch">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-gold-700">Por qué JurisGlobal</p>
             <h2 id="nosotros-title" className="mt-2 font-serif text-3xl font-bold text-navy sm:text-4xl">
@@ -67,15 +57,19 @@ export function WhyUs() {
             </ul>
           </div>
 
-          <ul className="grid gap-4">
+          {/* 4 atributos: 2×2 en tableta; en escritorio, apilados a lo alto de la columna de texto */}
+          <ul aria-label="Lo que nos diferencia" className="grid gap-4 sm:grid-cols-2 lg:h-full lg:grid-cols-1 lg:grid-rows-4 lg:pt-12">
             {PILLARS.map(({ icon: Icon, title, text }) => (
-              <li key={title} className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-navy/5 text-navy">
-                  <Icon className="h-5 w-5" aria-hidden="true" />
+              <li
+                key={title}
+                className="flex items-center gap-5 rounded-2xl border border-slate-200 border-l-4 border-l-[#ca9e3d] bg-white p-5 shadow-sm sm:p-6"
+              >
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#0d223d] text-[#ca9e3d]">
+                  <Icon className="h-7 w-7" aria-hidden="true" />
                 </span>
                 <div>
-                  <h3 className="font-bold text-navy">{title}</h3>
-                  <p className="mt-1 text-sm leading-relaxed text-slate-700">{text}</p>
+                  <h3 className="text-lg font-bold text-[#0d223d]">{title}</h3>
+                  <p className="mt-1 leading-relaxed text-slate-700">{text}</p>
                 </div>
               </li>
             ))}

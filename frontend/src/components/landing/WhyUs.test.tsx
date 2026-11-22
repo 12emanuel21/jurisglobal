@@ -21,4 +21,17 @@ describe('WhyUs · socios fundadores', () => {
     expect(blocks[0]).toHaveTextContent(/^Porque detrás de cada problema/);
     expect(blocks[5]).toHaveTextContent('JURISGLOBAL — Tu tranquilidad, nuestra misión.');
   });
+
+  it('los 4 atributos diferenciadores reemplazan a Trato humano, Prevención y Claridad', () => {
+    render(<WhyUs />);
+    const items = within(screen.getByRole('list', { name: 'Lo que nos diferencia' })).getAllByRole('listitem');
+    expect(items.map((i) => [within(i).getByRole('heading').textContent, i.querySelector('p')?.textContent])).toEqual([
+      ['Cercanía humana', 'Escuchamos tu situación y te brindamos atención personalizada.'],
+      ['Respaldo profesional', 'Conocimiento jurídico y financiero al servicio de tus intereses.'],
+      ['Confianza y transparencia', 'Orientación clara, responsable y honesta en cada etapa.'],
+      ['Soluciones integrales', 'Estrategias adaptadas a las necesidades de cada persona y empresa.'],
+    ]);
+    expect(screen.queryByText('Trato humano')).toBeNull();
+    expect(screen.queryByText('Claridad')).toBeNull();
+  });
 });
