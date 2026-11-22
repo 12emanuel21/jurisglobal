@@ -47,9 +47,20 @@ scripts/    backup_db.sh
 docs/       Especificación y documentos de diseño
 ```
 
+## API pública (Etapa 2)
+
+| Método y ruta (vía nginx) | Uso |
+|---|---|
+| `GET /api/public/config` | Motivos activos, `showConsultationPrice` / `consultationPrice`, enlaces legales y textos de autorización vigentes |
+| `POST /api/leads` | Formulario unificado. Cuerpo: `fullName`, `phone`, `email`, `motivo` (id o nombre), `origin: "web"`, `privacyAndTerms: true`, `contactAndDataProcessing: true`, `utm?` |
+| `GET /api/health` | Estado de PostgreSQL y Redis |
+| `GET/POST /meta/webhook` | Webhook de WhatsApp Cloud API (token de verificación + firma HMAC) |
+
 ## Pruebas
 
 ```bash
-./jg test     # backend (Jest)
-./jg lint     # tipos y lint de backend y frontend
+./jg test       # unitarias + integración (crea y migra la BD jurisglobal_test)
+./jg test-unit  # solo unitarias
+./jg test-e2e   # solo integración
+./jg lint       # tipos y lint de backend y frontend
 ```

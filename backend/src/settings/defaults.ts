@@ -10,7 +10,7 @@ export interface ConsentText {
 
 export const SETTING_DEFAULTS = {
   /** Interruptor del precio de la asesoría inicial: apagado = la web y el bot la presentan sin costo */
-  showConsultationPrice: false,
+  showConsultationPrice: false as boolean,
   /** Valor en COP (entero). Por confirmar (ESP §10.2: referencia $80.000–$150.000) */
   consultationPrice: null as number | null,
 
@@ -27,6 +27,9 @@ export const SETTING_DEFAULTS = {
 
   /** Destinatarios del correo de lead nuevo (por ahora, el correo del desarrollador: se completa en Configuración) */
   'notify.leadEmails': [] as string[],
+
+  /** Enlaces de los textos legales (provisionales durante el desarrollo, ESP §11). Rutas relativas o URLs */
+  'legal.links': { privacy: '/privacidad', terms: '/terminos', cookies: '/cookies' },
 
   'company.name': 'JURISGLOBAL, Soluciones Jurídicas y Financieras',
   'company.nit': null as string | null,

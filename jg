@@ -17,9 +17,11 @@ case "${1:-help}" in
   migrate-dev) "${DEV[@]}" exec api npx prisma migrate dev --name "${2:?Uso: ./jg migrate-dev <nombre>}" ;;
   seed)        "${DEV[@]}" exec api npm run seed:dev ;;
   seed-prod)   "${PROD[@]}" exec api npm run seed ;;
-  test)        "${DEV[@]}" exec api npx jest ;;
-  lint)        "${DEV[@]}" exec api npx tsc --noEmit
-               "${DEV[@]}" exec web npx tsc --noEmit
+  test)        "${DEV[@]}" exec api npm run test:all ;;
+  test-unit)   "${DEV[@]}" exec api npx jest ;;
+  test-e2e)    "${DEV[@]}" exec api npm run test:e2e ;;
+  lint)        "${DEV[@]}" exec api npx tsc --noEmit --incremental false
+               "${DEV[@]}" exec web npx tsc --noEmit --incremental false
                "${DEV[@]}" exec web npx eslint ;;
   build)       "${PROD[@]}" build ;;
   backup)      ./scripts/backup_db.sh ;;
@@ -33,7 +35,9 @@ case "${1:-help}" in
 ./jg migrate             prisma migrate deploy
 ./jg migrate-dev <name>  Nueva migración (solo desarrollo)
 ./jg seed | seed-prod    Seed idempotente
-./jg test | lint         Pruebas del backend / tipos y lint
+./jg test                Pruebas unitarias + integración (BD jurisglobal_test)
+./jg test-unit | test-e2e Solo unitarias / solo integración
+./jg lint                Tipos y lint
 ./jg backup              pg_dump a ./backups
 EOF
     ;;

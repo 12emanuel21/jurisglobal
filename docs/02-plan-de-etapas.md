@@ -48,9 +48,34 @@ Resultado verificado:
 - **Etapa 5:** el Inbox ya existe. Faltan los leads, la configuración (con el interruptor de precio), los usuarios y la **anonimización por ADMIN** (Ley 1581): borra nombre, correo y teléfono del lead o contacto, conserva `Consent` con `phoneHash` y la supresión, y queda auditada.
 - **Etapa 6:** el importador exige Origen y Autorización. Los lotes sin soporte documental para JurisGlobal quedan `UNVERIFIED` y solo admiten campañas `OPT_IN` (confirmación) antes de cualquier marketing. Topes iniciales: 1/día, 2/semana y 250/día.
 
-## Etapa 2 · API de leads y modelo de datos
+## Etapa 2 · API de leads y modelo de datos — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
 
-**Qué se construye**
+Lo construido:
+- `GET /api/public/config`: motivos activos ordenados, `showConsultationPrice` y `consultationPrice` (solo con el interruptor encendido), enlaces legales (`legal.links`), textos y versión de las autorizaciones, y nombre y lema de la empresa. Se cachea 60 s.
+- `POST /api/leads`: formulario unificado.
+  - Valida con DTO y rechaza campos desconocidos.
+  - El teléfono se normaliza de forma estricta a Colombia: celular `3xx` o fijo `60x`. Se guarda como `57XXXXXXXXXX` (igual que el `wa_id` de WhatsApp, para deduplicar entre web y bot) y la API lo expone como `+57XXXXXXXXXX`.
+  - El motivo se acepta por id o por nombre, solo si está activo.
+  - Exige las dos autorizaciones y registra un `Consent` por cada una, con versión, texto exacto, IP y user-agent.
+  - Rechaza `origin: "whatsapp"` desde Internet (403): el bot usa `LeadsService.submit()` internamente.
+  - Tiene un *honeypot* (`website`) y límite por IP: `LEADS_RATE_LIMIT` en Nest más `limit_req` en nginx.
+  - La respuesta es idéntica para lead nuevo y recontacto, así no revela si un número ya está registrado.
+- Recontacto:
+  - No duplica ni sobrescribe: solo completa campos vacíos, deja una **nota automática** con lo que difiere y suma `submissionCount`.
+  - Agrega consentimientos nuevos y crea o enlaza el `Contact` (y la conversación, si viene de WhatsApp).
+- Avisos:
+  - Correo HTML y texto en español: wa.me, mailto, motivo, origen y enlace al panel.
+  - Se envía sin bloquear, con 3 intentos (0 s, 5 s, 30 s). Un SMTP caído nunca impide guardar.
+  - Destinatarios: `notify.leadEmails` (Configuración) y, si está vacío, `LEAD_NOTIFICATION_EMAIL`.
+  - Socket.io emite `lead:new` o `lead:updated`.
+- Sin SMTP configurado la API arranca y advierte.
+
+Pruebas:
+- 107 unitarias (20 suites).
+- 24 de integración contra PostgreSQL real (base `jurisglobal_test`, creada y migrada automáticamente) con SMTP simulado.
+- Lint y tipos limpios. Las imágenes de producción compilan y arrancan.
+
+**Qué se construye** (plan original)
 - Prisma: `Motivo`, `Lead`, `LeadNote`, `Consent`, `Contact` (mínimo: teléfono, nombre, fuente y baja).
 - Semilla con:
   - los motivos Tránsito, Cartera, Deudas y Otro;

@@ -100,6 +100,8 @@ model Lead {
   fullName        String
   /// Deduplicación por teléfono (ESP §5, §6.3): un lead por número
   phone           String     @unique
+  /// Seudónimo del teléfono: se conserva tras anonimizar (trazabilidad con Consent y bajas)
+  phoneHash       String
   email           String
   motivoId        String
   motivo          Motivo     @relation(fields: [motivoId], references: [id])
@@ -125,6 +127,7 @@ model Lead {
   @@index([status, createdAt])
   @@index([motivoId])
   @@index([origin])
+  @@index([phoneHash])
 }
 
 model LeadNote {

@@ -42,11 +42,11 @@ seed-prod:
 	$(PROD) exec api npm run seed
 
 test:
-	$(DEV) exec api npx jest
+	$(DEV) exec api npm run test:all
 
 lint:
-	$(DEV) exec api npx tsc --noEmit
-	$(DEV) exec web npx tsc --noEmit
+	$(DEV) exec api npx tsc --noEmit --incremental false
+	$(DEV) exec web npx tsc --noEmit --incremental false
 	$(DEV) exec web npx eslint
 
 build:

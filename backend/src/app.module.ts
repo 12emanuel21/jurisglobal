@@ -9,10 +9,13 @@ import { UsersModule } from './users/users.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { ConversationsModule } from './conversations/conversations.module';
+import { SettingsModule } from './settings/settings.module';
+import { MailModule } from './mail/mail.module';
+import { LeadsModule } from './leads/leads.module';
 
 /**
- * Etapa 1: bases. Leads, configuración, notificaciones, chatbot y masivos se agregan en las
- * etapas 2–6 (docs/02-plan-de-etapas.md).
+ * Etapa 2: + leads, configuración pública y avisos por correo. Panel de leads, chatbot y masivos
+ * llegan en las etapas 4–6 (docs/02-plan-de-etapas.md).
  */
 @Module({
   imports: [
@@ -27,6 +30,9 @@ import { ConversationsModule } from './conversations/conversations.module';
     RealtimeModule,
     WhatsAppModule,
     ConversationsModule,
+    SettingsModule,
+    MailModule,
+    LeadsModule,
   ],
 })
 export class AppModule {}

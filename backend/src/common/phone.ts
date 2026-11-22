@@ -33,3 +33,18 @@ export function formatPhone(e164: string): string {
   const m = /^57(\d{3})(\d{3})(\d{4})$/.exec(e164);
   return m ? `+57 ${m[1]} ${m[2]} ${m[3]}` : `+${e164}`;
 }
+
+/** Celular (3xx) o fijo nacional (60x) de Colombia: 57 + 10 dígitos */
+const COLOMBIAN_E164 = /^57(3\d{9}|60\d{8})$/;
+
+/**
+ * Normalización ESTRICTA para leads (ESP §5): solo números de Colombia. Devuelve dígitos E.164
+ * sin "+" (como el wa_id de WhatsApp, para deduplicar entre web y bot) o null si no es válido.
+ */
+export function toColombianPhone(input: string | null | undefined): string | null {
+  const e164 = toE164(input);
+  return e164 && COLOMBIAN_E164.test(e164) ? e164 : null;
+}
+
+/** "573001234567" -> "+573001234567" (formato de salida de la API) */
+export const withPlus = (e164: string) => `+${e164}`;

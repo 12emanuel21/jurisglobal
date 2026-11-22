@@ -47,6 +47,21 @@ export const envSchema = z.object({
   META_APP_SECRET: optional,
   WHATSAPP_VERIFY_TOKEN: optional,
 
+  /** SMTP (Gmail con contraseña de aplicación). Sin configurar: la API arranca y advierte; no se envían correos */
+  SMTP_HOST: optional,
+  SMTP_PORT: z.coerce.number().int().positive().default(465),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  SMTP_USER: optional,
+  SMTP_PASS: optional,
+  /** Remitente ("JurisGlobal <correo@dominio>"); por defecto SMTP_USER */
+  SMTP_FROM: optional,
+  /** Destinatarios del aviso de lead (coma). El valor de Configuración (notify.leadEmails) tiene prioridad */
+  LEAD_NOTIFICATION_EMAIL: optional,
+
+  /** Envíos por minuto e IP a POST /leads */
   LEADS_RATE_LIMIT: z.coerce.number().int().positive().default(5),
   LOG_LEVEL: z.enum(['error', 'warn', 'log', 'debug', 'verbose']).default('log'),
 });
