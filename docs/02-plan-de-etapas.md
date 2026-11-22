@@ -99,7 +99,40 @@ Pruebas:
 - Con `curl`, el lead aparece en la BD y el correo llega al buzón configurado.
 - Superar el *rate limit* devuelve 429.
 
-## Etapa 3 · Landing y formulario
+## Etapa 3 · Landing y formulario — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
+
+Lo construido:
+- **Landing `/`** (estática, *mobile-first*), con estas secciones:
+  - encabezado con navegación y WhatsApp;
+  - hero con propuesta de valor y bloque dinámico de la asesoría inicial;
+  - servicios: Tránsito como foco, Cartera, Deudas y Orientación jurídica general, con redacción prudente y aviso de que no es asesoría;
+  - «Por qué JurisGlobal», con valores y socios fundadores;
+  - formulario unificado;
+  - banda de cierre, pie de página y botón flotante de WhatsApp.
+- **Precio de la asesoría:** el bloque lee `GET /api/public/config`. Con el interruptor encendido muestra `$100.000 COP`; apagado, sin valor o sin configuración, muestra un llamado neutro, sin decir «gratis».
+- **Formulario:**
+  - Motivos y textos de autorización vivos, con enlaces legales.
+  - Validación por campo: teléfono `+57` (celular `3xx` o fijo `60x`), correo y nombre.
+  - Honeypot, avisos de 429 y 400, y tarjeta de confirmación.
+  - Las tarjetas de servicio preseleccionan el motivo.
+- **Logotipo vectorial provisional** en `components/brand/Logo.tsx`: globo, apretón de manos estilizado y flecha dorada. Para usar el archivo final basta con reemplazar ese componente.
+- **Páginas legales provisionales** `/legal/privacidad`, `/legal/terminos` y `/legal/cookies`, marcadas como borrador para revisión jurídica. `legal.links` ahora apunta a esas rutas.
+- **Datos públicos** por `NEXT_PUBLIC_*`, incrustados al compilar mediante *build args* del compose; los valores son provisionales.
+- Se corrigieron dos fallos detectados al probar en el navegador:
+  - `allowedDevOrigins` ahora incluye `127.0.0.1`. En desarrollo, el panel y la landing no se hidrataban al entrar por nginx.
+  - `AuthProvider` pasó del layout raíz al login y al panel. La landing ya no consulta `/auth/profile`, que daba 401 en la consola.
+
+Pruebas:
+- **Frontend:** 27 pruebas con Vitest + Testing Library.
+- **Backend:** 107 unitarias y 24 de integración.
+- **Navegador real:** Chromium con Playwright contra nginx, en desarrollo y producción:
+  - sin errores en consola;
+  - sin scroll horizontal y con los botones de 44 px o más;
+  - el WhatsApp flotante se oculta sobre el formulario;
+  - el envío real responde 201.
+- **Lighthouse móvil (producción):** accesibilidad 96, buenas prácticas 96, SEO 100, rendimiento 83. El único aviso de contraste es el «GLOBAL» dorado del logotipo, que las WCAG eximen como parte de la marca; se revisará con el logo oficial.
+
+**Qué se construye** (plan original)
 
 **Qué se construye**
 - Landing *mobile-first* con:

@@ -5,8 +5,9 @@ const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || 'http://api:4000';
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  // Solo modo dev: orígenes permitidos además de localhost (túnel de pruebas)
-  allowedDevOrigins: ['*.trycloudflare.com'],
+  // Solo modo dev: Next bloquea sus recursos (/_next/*, HMR) para otros orígenes. Se entra por nginx
+  // en 127.0.0.1:8088 y, para probar el webhook, por un túnel temporal de Cloudflare.
+  allowedDevOrigins: ['127.0.0.1', 'localhost', '*.trycloudflare.com'],
   async rewrites() {
     // Permite usar /api también al entrar directo al puerto de Next (sin nginx)
     return [{ source: '/api/:path*', destination: `${BACKEND_URL}/:path*` }];

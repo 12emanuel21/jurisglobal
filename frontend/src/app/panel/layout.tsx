@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
+import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { SudoProvider } from '@/context/SudoContext';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import Sidebar from '@/components/layout/Sidebar';
@@ -14,9 +14,11 @@ import { canAccessPanelPath, PANEL_HOME } from '@/lib/roles';
 export default function PanelLayout({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
-      <div className="jg-panel">
-        <PanelShell>{children}</PanelShell>
-      </div>
+      <AuthProvider>
+        <div className="jg-panel">
+          <PanelShell>{children}</PanelShell>
+        </div>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

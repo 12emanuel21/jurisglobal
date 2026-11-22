@@ -29,7 +29,7 @@ export const SETTING_DEFAULTS = {
   'notify.leadEmails': [] as string[],
 
   /** Enlaces de los textos legales (provisionales durante el desarrollo, ESP §11). Rutas relativas o URLs */
-  'legal.links': { privacy: '/privacidad', terms: '/terminos', cookies: '/cookies' },
+  'legal.links': { privacy: '/legal/privacidad', terms: '/legal/terminos', cookies: '/legal/cookies' },
 
   'company.name': 'JURISGLOBAL, Soluciones Jurídicas y Financieras',
   'company.nit': null as string | null,

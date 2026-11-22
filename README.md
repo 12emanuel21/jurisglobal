@@ -56,11 +56,27 @@ docs/       Especificación y documentos de diseño
 | `GET /api/health` | Estado de PostgreSQL y Redis |
 | `GET/POST /meta/webhook` | Webhook de WhatsApp Cloud API (token de verificación + firma HMAC) |
 
+## Web pública (Etapa 3)
+
+| Ruta | Contenido |
+|---|---|
+| `/` | Landing: hero con asesoría inicial dinámica, servicios, nosotros, formulario unificado, WhatsApp |
+| `/legal/privacidad`, `/legal/terminos`, `/legal/cookies` | Textos legales **provisionales** (pendientes de revisión jurídica) |
+
+Datos de contacto públicos (`NEXT_PUBLIC_WHATSAPP_NUMBER`, `NEXT_PUBLIC_WHATSAPP_MESSAGE`,
+`NEXT_PUBLIC_CONTACT_PHONE`, `NEXT_PUBLIC_CONTACT_EMAIL`, `NEXT_PUBLIC_NIT_INFO`): Next los incrusta
+al compilar, así que cambiarlos en `.env` exige reconstruir la imagen web (`./jg up`). En desarrollo
+basta con reiniciar el contenedor `web`. Los valores actuales son de relleno.
+
+Logotipo: `frontend/src/components/brand/Logo.tsx` es un vectorial provisional; para usar el archivo
+oficial, ponerlo en `frontend/public/brand/` y reemplazar `<LogoMark/>` en ese componente.
+
 ## Pruebas
 
 ```bash
-./jg test       # unitarias + integración (crea y migra la BD jurisglobal_test)
-./jg test-unit  # solo unitarias
-./jg test-e2e   # solo integración
+./jg test       # backend (unitarias + integración, crea y migra la BD jurisglobal_test) y frontend (Vitest)
+./jg test-unit  # backend: solo unitarias
+./jg test-e2e   # backend: solo integración
+./jg test-web   # frontend: Vitest + Testing Library
 ./jg lint       # tipos y lint de backend y frontend
 ```

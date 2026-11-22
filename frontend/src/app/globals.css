@@ -167,15 +167,18 @@ html:not(.dark) .jg-panel .text-slate-900 {
 }
 
 /* ── JurisGlobal: identidad de marca (ESP §2) ──
-   Blanco (base), azul marino / "azul turquí" (principal) y dorado (acentos). Valores provisionales
-   hasta recibir el logo en alta: se ajustan en la Etapa 3. */
+   Blanco (base), azul marino / "azul turquí" (principal: autoridad) y dorado (acentos, bordes finos,
+   insignias). El dorado NO se usa para texto pequeño sobre blanco (contraste insuficiente): solo sobre
+   azul marino, en bordes o en tamaños grandes. */
 :root {
   --background: #ffffff;
   --foreground: #0f1b2d;
-  --brand-navy: #0f2a4a;
-  --brand-navy-700: #163a63;
-  --brand-gold: #c9a227;
-  --brand-gold-600: #a8861c;
+  --brand-navy: #0b1f3a;
+  --brand-navy-700: #102a4c;
+  --brand-gold: #c89d3c;
+  --brand-gold-400: #d4af37;
+  /* Dorado oscurecido para texto sobre blanco (contraste AA 4.6:1) */
+  --brand-gold-700: #8a6a1f;
 }
 .dark {
   --background: #0b1626;
@@ -188,7 +191,8 @@ html:not(.dark) .jg-panel .text-slate-900 {
   --color-navy: var(--brand-navy);
   --color-navy-700: var(--brand-navy-700);
   --color-gold: var(--brand-gold);
-  --color-gold-600: var(--brand-gold-600);
+  --color-gold-400: var(--brand-gold-400);
+  --color-gold-700: var(--brand-gold-700);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-playfair), Georgia, "Times New Roman", serif;
@@ -197,6 +201,15 @@ html:not(.dark) .jg-panel .text-slate-900 {
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 /* Botones táctiles: mínimo 44 px (ESP §2) */

@@ -17,7 +17,9 @@ case "${1:-help}" in
   migrate-dev) "${DEV[@]}" exec api npx prisma migrate dev --name "${2:?Uso: ./jg migrate-dev <nombre>}" ;;
   seed)        "${DEV[@]}" exec api npm run seed:dev ;;
   seed-prod)   "${PROD[@]}" exec api npm run seed ;;
-  test)        "${DEV[@]}" exec api npm run test:all ;;
+  test)        "${DEV[@]}" exec api npm run test:all
+               "${DEV[@]}" exec web npm test ;;
+  test-web)    "${DEV[@]}" exec web npm test ;;
   test-unit)   "${DEV[@]}" exec api npx jest ;;
   test-e2e)    "${DEV[@]}" exec api npm run test:e2e ;;
   lint)        "${DEV[@]}" exec api npx tsc --noEmit --incremental false
@@ -35,7 +37,8 @@ case "${1:-help}" in
 ./jg migrate             prisma migrate deploy
 ./jg migrate-dev <name>  Nueva migración (solo desarrollo)
 ./jg seed | seed-prod    Seed idempotente
-./jg test                Pruebas unitarias + integración (BD jurisglobal_test)
+./jg test                Backend (unitarias + integración, BD jurisglobal_test) y frontend (Vitest)
+./jg test-web            Solo frontend (Vitest + Testing Library)
 ./jg test-unit | test-e2e Solo unitarias / solo integración
 ./jg lint                Tipos y lint
 ./jg backup              pg_dump a ./backups

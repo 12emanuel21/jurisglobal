@@ -72,6 +72,13 @@ services:
     build:
       context: ./frontend
       target: prod
+      # Datos públicos de contacto: Next los incrusta al compilar (ver .env.example)
+      args:
+        NEXT_PUBLIC_WHATSAPP_NUMBER: ${NEXT_PUBLIC_WHATSAPP_NUMBER:-}
+        NEXT_PUBLIC_WHATSAPP_MESSAGE: ${NEXT_PUBLIC_WHATSAPP_MESSAGE:-}
+        NEXT_PUBLIC_CONTACT_PHONE: ${NEXT_PUBLIC_CONTACT_PHONE:-}
+        NEXT_PUBLIC_CONTACT_EMAIL: ${NEXT_PUBLIC_CONTACT_EMAIL:-}
+        NEXT_PUBLIC_NIT_INFO: ${NEXT_PUBLIC_NIT_INFO:-}
     container_name: jurisglobal_web
     restart: unless-stopped
     environment:

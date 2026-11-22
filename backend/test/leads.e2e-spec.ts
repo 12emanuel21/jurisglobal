@@ -62,7 +62,11 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
       expect(res.body.motivos.map((m: { name: string }) => m.name)).toEqual(['Tránsito', 'Cartera', 'Deudas', 'Otro']);
       expect(res.body.showConsultationPrice).toBe(false);
       expect(res.body.consultationPrice).toBeNull();
-      expect(res.body.legal).toEqual({ privacy: '/privacidad', terms: '/terminos', cookies: '/cookies' });
+      expect(res.body.legal).toEqual({
+        privacy: '/legal/privacidad',
+        terms: '/legal/terminos',
+        cookies: '/legal/cookies',
+      });
       expect(res.body.consents.privacyAndTerms).toMatchObject({
         version: 1,
         text: expect.stringContaining('JurisGlobal'),

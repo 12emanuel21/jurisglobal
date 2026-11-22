@@ -43,6 +43,7 @@ seed-prod:
 
 test:
 	$(DEV) exec api npm run test:all
+	$(DEV) exec web npm test
 
 lint:
 	$(DEV) exec api npx tsc --noEmit --incremental false
