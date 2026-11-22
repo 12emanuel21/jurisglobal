@@ -142,3 +142,31 @@ export class TestSendDto {
   /** Solo pruebas: omitir el horario Ley 2300 (queda en la bitácora) */
   @IsOptional() @IsBoolean() skipWindow?: boolean;
 }
+
+// ───────────── Campañas recurrentes ─────────────
+
+export class RecurrenceDto {
+  @IsIn(['DAILY', 'WEEKLY', 'MONTHLY'], { message: 'Elige la frecuencia: diaria, semanal o mensual' })
+  frequency!: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  daysOfWeek?: number[];
+  @IsOptional() @IsInt() @Min(1) @Max(28) dayOfMonth?: number;
+  @Transform(trim) @IsString() @MaxLength(5) timeOfDay!: string;
+  @IsOptional() @Transform(emptyToUndefined) @IsString() @MaxLength(10) startDate?: string;
+  @IsOptional() @Transform(emptyToUndefined) @IsString() @MaxLength(10) endDate?: string;
+}
+
+export class CreateScheduleDto extends CampaignPreviewDto {
+  @Transform(trim)
+  @IsString()
+  @MinLength(3, { message: 'Ponle un nombre a la campaña recurrente' })
+  @MaxLength(100)
+  name!: string;
+  @IsOptional() @IsBoolean() dryRun?: boolean;
+  @ValidateNested() @Type(() => RecurrenceDto) recurrence!: RecurrenceDto;
+}

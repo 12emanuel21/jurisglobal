@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ACTIVE_STATUSES } from '../campaign-engine';
 import { CampaignQueue } from '../campaign-queue';
 import { QualityGuard } from '../quality-guard';
+import { CampaignLauncher, LaunchRejected } from '../campaign-launcher';
 import { CLOCK, type Clock } from '../clock';
 import { TwoFactorAuthService } from '../../auth/two-factor-auth.service';
 import { CATEGORY_LABELS, META_ERROR_LABELS, type MetaErrorCategory } from '../meta-errors';
@@ -74,6 +75,7 @@ export class CampaignsService {
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly twoFactorAuth: TwoFactorAuthService,
     private readonly quality: QualityGuard,
+    private readonly launcher: CampaignLauncher,
   ) {}
 
   private async metricsFor(ids: string[]): Promise<Map<string, CampaignMetrics>> {
@@ -118,6 +120,7 @@ export class CampaignsService {
       kind: c.kind,
       status: c.status,
       dryRun: c.dryRun,
+      scheduleId: c.scheduleId,
       template: { id: c.templateId, name: c.template.name, language: c.template.language },
       scheduledAt: c.scheduledAt,
       startedAt: c.startedAt,
@@ -294,79 +297,26 @@ export class CampaignsService {
   async create(actor: AuthenticatedUser, dto: CreateCampaignDto, sudoToken?: string) {
     if (actor.isTwoFactorEnabled) await this.twoFactorAuth.assertSudo({ user: actor, sudoToken });
     const template = await this.loadTemplate(dto.templateId);
-    const buttons = toTemplateButtons(template.buttons);
-    const problems = templateLaunchProblems({ status: template.status, purpose: template.purpose, buttons });
-    if (problems.length) throw new BadRequestException(problems.join('. '));
     const audience = this.audienceOf(dto);
-    const mapping = this.mappingOf(dto.variableMapping, template.variableCount);
-
     const now = this.clock.now();
-    let scheduledAt: Date | null = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
-    if (scheduledAt && scheduledAt.getTime() <= now.getTime()) scheduledAt = null;
+    const scheduledAt: Date | null = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
     if (scheduledAt && scheduledAt.getTime() - now.getTime() > MAX_SCHEDULE_AHEAD_MS)
       throw new BadRequestException('Solo se puede programar hasta 90 días hacia adelante');
-
-    const members = await resolveAudience(this.prisma, audience, template.purpose);
-    const recipients = members.filter((m) => !m.exclusion).length;
-    if (!recipients)
-      throw new BadRequestException(
-        template.purpose === 'MARKETING'
-          ? 'Ningún contacto de esa audiencia puede recibir marketing (solo los verificados y sin baja)'
-          : 'Ningún contacto de esa audiencia necesita confirmar su autorización',
-      );
-
-    const campaign = await this.prisma.$transaction(
-      async (tx) => {
-        const created = await tx.campaign.create({
-          data: {
-            name: dto.name,
-            kind: template.purpose,
-            templateId: template.id,
-            variableMapping: mapping as unknown as Prisma.InputJsonValue,
-            audienceFilter: audience as unknown as Prisma.InputJsonValue,
-            status: scheduledAt ? 'SCHEDULED' : 'RUNNING',
-            scheduledAt,
-            startedAt: scheduledAt ? null : now,
-            dryRun: dto.dryRun ?? false,
-            createdById: actor.id,
-          },
-        });
-        // createdAt escalonado (1 ms): el worker envía en el orden de la audiencia, sin empates
-        const rows: Prisma.CampaignMessageCreateManyInput[] = members.map((m, i) => ({
-          createdAt: new Date(now.getTime() + i),
-          campaignId: created.id,
-          contactId: m.id,
-          phone: m.phone,
-          variables: [],
-          status: m.exclusion ? CampaignMsgStatus.SKIPPED : CampaignMsgStatus.PENDING,
-          skipReason: m.exclusion,
-        }));
-        for (let i = 0; i < rows.length; i += 1000)
-          await tx.campaignMessage.createMany({ data: rows.slice(i, i + 1000) });
-        return created;
-      },
-      { timeout: 60_000 },
-    );
-
-    await this.quality.forceRecheck();
-    await this.queue.schedule(campaign.id, scheduledAt ? scheduledAt.getTime() - now.getTime() : 0);
-    await this.audit.record({
-      userId: actor.id,
-      action: 'campaign.launch',
-      entity: 'Campaign',
-      entityId: campaign.id,
-      data: {
-        name: campaign.name,
-        template: template.name,
-        kind: template.purpose,
-        recipients,
-        excluded: members.length - recipients,
-        scheduledAt: scheduledAt?.toISOString() ?? null,
-        dryRun: campaign.dryRun,
-      },
-    });
-    this.emit(campaign.id);
-    return this.detail(campaign.id);
+    try {
+      const { id } = await this.launcher.launch({
+        template,
+        audience,
+        variableMapping: dto.variableMapping,
+        name: dto.name,
+        scheduledAt,
+        dryRun: dto.dryRun ?? false,
+        actorId: actor.id,
+      });
+      return this.detail(id);
+    } catch (error) {
+      if (error instanceof LaunchRejected) throw new BadRequestException(error.message);
+      throw error;
+    }
   }
 
   private async load(id: string) {

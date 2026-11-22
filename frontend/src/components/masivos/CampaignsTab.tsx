@@ -5,7 +5,8 @@ import { AlertOctagon, Plus } from 'lucide-react';
 import { btnPrimary, card, errorText, muted } from '@/components/panel/ui';
 import { formatDateTime } from '@/lib/format';
 import { usePanelEvents } from '@/lib/realtime';
-import { CAMPAIGN_STATUS_LABEL, KIND_LABEL, masivosApi, type CampaignSummary, type WhatsAppQuality } from '@/lib/masivos';
+import { CAMPAIGN_STATUS_LABEL, KIND_LABEL, masivosApi, type CampaignScheduleSummary, type CampaignSummary, type WhatsAppQuality } from '@/lib/masivos';
+import { SchedulesPanel } from './SchedulesPanel';
 import { CampaignDetail, ProgressBar, STATUS_BADGE } from './CampaignDetail';
 import { CampaignForm } from './CampaignForm';
 
@@ -13,6 +14,7 @@ import { CampaignForm } from './CampaignForm';
 export function CampaignsTab() {
   const [items, setItems] = useState<CampaignSummary[] | null>(null);
   const [quality, setQuality] = useState<WhatsAppQuality | null>(null);
+  const [schedules, setSchedules] = useState<CampaignScheduleSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -26,6 +28,10 @@ export function CampaignsTab() {
       .campaigns()
       .then((r) => alive && (setItems(r.items), setQuality(r.quality ?? null), setError(null)))
       .catch((err: unknown) => alive && setError(errorText(err, 'No se pudieron cargar las campañas')));
+    masivosApi
+      .schedules()
+      .then((r) => alive && setSchedules(r))
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -38,7 +44,7 @@ export function CampaignsTab() {
     [],
   );
 
-  usePanelEvents(['campaign:progress', 'whatsapp:quality'], () => {
+  usePanelEvents(['campaign:progress', 'whatsapp:quality', 'schedule:changed'], () => {
     if (timer.current) return;
     timer.current = setTimeout(() => {
       timer.current = null;
@@ -77,6 +83,10 @@ export function CampaignsTab() {
             setCreating(false);
             setOpenId(id);
           }}
+          onScheduled={() => {
+            setCreating(false);
+            setReload((n) => n + 1);
+          }}
         />
       ) : (
         <div className="flex justify-end">
@@ -90,6 +100,7 @@ export function CampaignsTab() {
           {error}
         </p>
       )}
+      <SchedulesPanel items={schedules} onChanged={() => setReload((n) => n + 1)} onOpenCampaign={setOpenId} />
       {items && items.length === 0 && !creating && (
         <p className={`${card} p-5 text-sm ${muted}`}>Aún no hay campañas. Importa contactos, registra una plantilla y crea la primera.</p>
       )}
@@ -102,7 +113,8 @@ export function CampaignsTab() {
                   <p className="font-semibold text-navy dark:text-slate-100">{c.name}</p>
                   <p className={`text-xs ${muted}`}>
                     {c.template.name} · {KIND_LABEL[c.kind]}
-                    {c.dryRun ? ' · Simulación' : ''} · {formatDateTime(c.createdAt)}
+                    {c.dryRun ? ' · Simulación' : ''}
+                    {c.scheduleId ? ' · Recurrente' : ''} · {formatDateTime(c.createdAt)}
                   </p>
                 </div>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_BADGE[c.status]}`}>{CAMPAIGN_STATUS_LABEL[c.status]}</span>

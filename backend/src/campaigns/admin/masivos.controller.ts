@@ -38,7 +38,10 @@ import {
   RecipientsQueryDto,
   TemplateDto,
   TestSendDto,
+  CreateScheduleDto,
+  RecurrenceDto,
 } from './dto';
+import { SchedulesService } from './schedules.service';
 import { TestSendService } from './test-send.service';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -207,5 +210,52 @@ export class AdminCampaignsController {
   @HttpCode(200)
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
     return this.campaigns.cancel(user, id);
+  }
+}
+
+/** Campañas recurrentes: solo ADMIN */
+@Controller('admin/campaign-schedules')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
+export class AdminSchedulesController {
+  constructor(private readonly schedules: SchedulesService) {}
+
+  @Get()
+  list() {
+    return this.schedules.list();
+  }
+
+  /** Próximas ejecuciones de una regla (sin guardar) */
+  @Post('preview')
+  @HttpCode(200)
+  preview(@Body() dto: RecurrenceDto) {
+    return this.schedules.preview(dto);
+  }
+
+  /** Crear una campaña recurrente es como lanzar: con 2FA activo exige Sudo Mode */
+  @Post()
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateScheduleDto,
+    @Headers(SUDO_HEADER) sudoToken?: string,
+  ) {
+    return this.schedules.create(user, dto, sudoToken);
+  }
+
+  @Post(':id/pause')
+  @HttpCode(200)
+  pause(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
+    return this.schedules.pause(user, id);
+  }
+
+  @Post(':id/resume')
+  @HttpCode(200)
+  resume(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
+    return this.schedules.resume(user, id);
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
+    return this.schedules.remove(user, id);
   }
 }

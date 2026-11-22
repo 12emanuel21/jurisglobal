@@ -38,12 +38,13 @@ model User {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  assignedLeads    Lead[]          @relation("LeadAssignee")
-  notes            LeadNote[]
-  campaigns        Campaign[]
-  imports          ContactImport[]
-  auditLogs        AuditLog[]
-  sentMessages     Message[]       @relation("MessageSender")
+  assignedLeads     Lead[]             @relation("LeadAssignee")
+  notes             LeadNote[]
+  campaigns         Campaign[]
+  campaignSchedules CampaignSchedule[]
+  imports           ContactImport[]
+  auditLogs         AuditLog[]
+  sentMessages      Message[]          @relation("MessageSender")
 }
 
 model AuditLog {
@@ -236,9 +237,9 @@ model Conversation {
 }
 
 model Message {
-  id                String        @id @default(uuid())
+  id                String           @id @default(uuid())
   conversationId    String
-  conversation      Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation      Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction         MsgDirection
   author            MsgAuthor
   /// text, interactive, button, template, image, audio, document, system…
@@ -253,15 +254,15 @@ model Message {
   mediaName         String?
   mediaMime         String?
   /// Deduplicación de webhooks y matching de estados
-  waMessageId       String?       @unique
+  waMessageId       String?          @unique
   status            MsgStatus?
   errorCode         Int?
   errorDetail       String?
   sentById          String?
-  sentBy            User?         @relation("MessageSender", fields: [sentById], references: [id], onDelete: SetNull)
-  campaignMessageId String?       @unique
+  sentBy            User?            @relation("MessageSender", fields: [sentById], references: [id], onDelete: SetNull)
+  campaignMessageId String?          @unique
   campaignMessage   CampaignMessage? @relation(fields: [campaignMessageId], references: [id], onDelete: SetNull)
-  createdAt         DateTime      @default(now())
+  createdAt         DateTime         @default(now())
 
   @@index([conversationId, createdAt])
 }
@@ -346,16 +347,16 @@ model ContactImport {
 }
 
 model MessageTemplate {
-  id            String       @id @default(uuid())
+  id            String             @id @default(uuid())
   /// id de Meta (null si se registró a mano en el panel y aún no se sincroniza)
-  metaId        String?      @unique
+  metaId        String?            @unique
   /// Nombre técnico en Meta (minúsculas y guiones bajos)
   name          String
   language      String
   /// MARKETING, UTILITY…
   category      String
   /// Uso en JurisGlobal: MARKETING (solo verificados) u OPT_IN (confirmación de autorización)
-  purpose       CampaignKind @default(MARKETING)
+  purpose       CampaignKind       @default(MARKETING)
   /// APPROVED, PAUSED, REJECTED…
   status        String
   /// Copia de Meta (HEADER/BODY/FOOTER/BUTTONS)
@@ -363,16 +364,17 @@ model MessageTemplate {
   bodyText      String
   footerText    String?
   /// Botones de respuesta rápida: [{ text, role: OPT_OUT | OPT_IN_ACCEPT | OTHER }]
-  buttons       Json         @default("[]")
+  buttons       Json               @default("[]")
   variableCount Int
   /// La plantilla trae opción de baja (botón o texto): obligatoria para lanzar (ESP §7.2)
-  hasOptOut     Boolean      @default(false)
+  hasOptOut     Boolean            @default(false)
   /// MANUAL (panel) | META (sincronizada desde Graph)
-  source        String       @default("MANUAL")
+  source        String             @default("MANUAL")
   lastSyncedAt  DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
   campaigns     Campaign[]
+  schedules     CampaignSchedule[]
 
   @@unique([name, language])
 }
@@ -394,15 +396,15 @@ enum CampaignStatus {
 }
 
 model Campaign {
-  id              String          @id @default(uuid())
+  id              String            @id @default(uuid())
   name            String
-  kind            CampaignKind    @default(MARKETING)
+  kind            CampaignKind      @default(MARKETING)
   templateId      String
-  template        MessageTemplate @relation(fields: [templateId], references: [id])
+  template        MessageTemplate   @relation(fields: [templateId], references: [id])
   /// {"1": "contact.name", "2": {"literal": "…"}}
   variableMapping Json
   audienceFilter  Json?
-  status          CampaignStatus  @default(DRAFT)
+  status          CampaignStatus    @default(DRAFT)
   /// "No antes de": el envío real respeta ventanas, festivos y topes
   scheduledAt     DateTime?
   dailyCap        Int?
@@ -411,17 +413,63 @@ model Campaign {
   /// MANUAL, TEMPLATE_ERROR, ACCOUNT_ERROR, NOT_CONFIGURED, NO_WINDOW
   pausedReason    String?
   /// Simulación: recorre ventanas, topes y jitter sin llamar a Meta
-  dryRun          Boolean         @default(false)
+  dryRun          Boolean           @default(false)
   /// Próxima ejecución del worker y por qué espera (WINDOW, DAILY_LIMIT, FREQUENCY_CAP, JITTER, SCHEDULED, RETRY)
   nextRunAt       DateTime?
   waitReason      String?
   createdById     String?
-  createdBy       User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdBy       User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
   messages        CampaignMessage[]
+  /// Programación recurrente que la creó (null = campaña creada a mano)
+  scheduleId      String?
+  schedule        CampaignSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([status, scheduledAt])
+  @@index([scheduleId])
+}
+
+enum ScheduleFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+/// Campaña recurrente: el worker crea una campaña nueva en cada ejecución (misma plantilla, audiencia
+/// y variables). Cada campaña creada respeta la Ley 2300, festivos, topes y bajas como cualquier otra.
+model CampaignSchedule {
+  id              String            @id @default(uuid())
+  name            String
+  templateId      String
+  template        MessageTemplate   @relation(fields: [templateId], references: [id])
+  variableMapping Json
+  audienceFilter  Json
+  dryRun          Boolean           @default(false)
+  frequency       ScheduleFrequency
+  /// WEEKLY: días 0 (domingo) … 6 (sábado)
+  daysOfWeek      Int[]             @default([])
+  /// MONTHLY: día del mes 1–28
+  dayOfMonth      Int?
+  /// Hora local de Colombia "HH:MM"
+  timeOfDay       String
+  /// Fechas locales (YYYY-MM-DD) de inicio y fin opcionales
+  startDate       String?
+  endDate         String?
+  isActive        Boolean           @default(true)
+  nextRunAt       DateTime?
+  lastRunAt       DateTime?
+  lastCampaignId  String?
+  /// Motivo por el que la última ejecución no creó campaña (null = todo bien)
+  lastSkipReason  String?
+  runs            Int               @default(0)
+  createdById     String?
+  createdBy       User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  campaigns       Campaign[]
+
+  @@index([isActive, nextRunAt])
 }
 
 enum CampaignMsgStatus {

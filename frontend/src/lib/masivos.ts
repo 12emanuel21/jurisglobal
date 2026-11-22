@@ -187,6 +187,8 @@ export interface CampaignSummary {
   kind: CampaignKind;
   status: CampaignStatus;
   dryRun: boolean;
+  /** Creada por una campaña recurrente */
+  scheduleId?: string | null;
   template: { id: string; name: string; language: string };
   scheduledAt: string | null;
   startedAt: string | null;
@@ -268,6 +270,48 @@ export interface CampaignInput {
   scheduledAt?: string;
   dryRun?: boolean;
 }
+
+// ───────── Campañas recurrentes ─────────
+export type Frequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+export interface Recurrence {
+  frequency: Frequency;
+  daysOfWeek: number[];
+  dayOfMonth: number | null;
+  timeOfDay: string;
+  startDate: string | null;
+  endDate: string | null;
+}
+export interface SchedulePreview {
+  description: string;
+  /** startsAt: cuándo empezaría a enviar (si cae fuera del horario Ley 2300, la siguiente apertura) */
+  runs: Array<{ at: string; insideWindow: boolean; startsAt: string | null }>;
+}
+export interface CampaignScheduleSummary {
+  id: string;
+  name: string;
+  template: { id: string; name: string };
+  dryRun: boolean;
+  description: string;
+  recurrence: Recurrence;
+  isActive: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastSkipReason: string | null;
+  lastCampaign: { id: string; name: string; status: CampaignStatus } | null;
+  runs: number;
+  createdBy: string | null;
+  createdAt: string;
+}
+/** 0 = domingo … 6 = sábado; la semana se muestra de lunes a domingo */
+export const WEEK_DAYS: Array<{ value: number; short: string; long: string }> = [
+  { value: 1, short: 'L', long: 'lunes' },
+  { value: 2, short: 'M', long: 'martes' },
+  { value: 3, short: 'X', long: 'miércoles' },
+  { value: 4, short: 'J', long: 'jueves' },
+  { value: 5, short: 'V', long: 'viernes' },
+  { value: 6, short: 'S', long: 'sábado' },
+  { value: 0, short: 'D', long: 'domingo' },
+];
 
 /** Última calidad del número reportada por Meta (Graph o webhook) */
 export interface WhatsAppQuality {
@@ -394,6 +438,12 @@ export const masivosApi = {
   pause: (id: string) => apiJson<CampaignDetail>(`/admin/campaigns/${id}/pause`, { method: 'POST' }),
   resume: (id: string) => apiJson<CampaignDetail>(`/admin/campaigns/${id}/resume`, { method: 'POST' }),
   cancel: (id: string) => apiJson<CampaignDetail>(`/admin/campaigns/${id}/cancel`, { method: 'POST' }),
+
+  schedules: () => apiJson<CampaignScheduleSummary[]>('/admin/campaign-schedules'),
+  schedulePreview: (body: Partial<Recurrence>) => apiJson<SchedulePreview>('/admin/campaign-schedules/preview', json(body)),
+  pauseSchedule: (id: string) => apiJson<CampaignScheduleSummary>(`/admin/campaign-schedules/${id}/pause`, { method: 'POST' }),
+  resumeSchedule: (id: string) => apiJson<CampaignScheduleSummary>(`/admin/campaign-schedules/${id}/resume`, { method: 'POST' }),
+  deleteSchedule: (id: string) => apiJson<{ ok: true }>(`/admin/campaign-schedules/${id}`, { method: 'DELETE' }),
 };
 
 export const IMPORT_TEMPLATE_FILENAME = 'plantilla-contactos-jurisglobal.xlsx';

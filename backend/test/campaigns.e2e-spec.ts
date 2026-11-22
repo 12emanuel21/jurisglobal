@@ -19,6 +19,7 @@ import { WebhookProcessor } from '../src/whatsapp/webhook.processor';
 import { CampaignEngine, type StepResult } from '../src/campaigns/campaign-engine';
 import { CampaignQueue, bullPrefix, CAMPAIGN_QUEUE } from '../src/campaigns/campaign-queue';
 import { CampaignWorkerService } from '../src/campaigns/campaign-worker';
+import { CampaignScheduleRunner } from '../src/campaigns/schedule-runner';
 import { CLOCK } from '../src/campaigns/clock';
 import { isWithinSendWindow, localDateKey } from '../src/compliance/send-window';
 import { resetDatabase } from './helpers';
@@ -521,7 +522,7 @@ describe('Etapa 6 · Masivos (integración)', () => {
       await contact('DOCUMENTED');
       clock.current = bogota('2026-11-29T10:00'); // domingo
       const campaign = await launch((await template()).id);
-      const worker = new CampaignWorkerService(engine, queue);
+      const worker = new CampaignWorkerService(engine, queue, app.get(CampaignScheduleRunner));
       try {
         await worker.start();
         // El trabajo queda "delayed" hasta el lunes 07:00 (21 h), sin intervención manual
@@ -875,6 +876,127 @@ describe('Etapa 6 · Masivos (integración)', () => {
         .send({ templateId: (await template()).id, audience: { type: 'all' } })
         .expect(200);
       expect(preview.body.recipients).toBe(1);
+    });
+  });
+
+  // ─────────────── Campañas recurrentes ───────────────
+  describe('Campañas recurrentes (tarea programada)', () => {
+    const runner = () => app.get(CampaignScheduleRunner);
+    async function schedule(
+      templateId: string,
+      recurrence: Record<string, unknown>,
+      extra: Record<string, unknown> = {},
+    ) {
+      const res = await api()
+        .post('/admin/campaign-schedules')
+        .set(as(admin))
+        .send({ name: 'Boletín semanal', templateId, audience: { type: 'all' }, recurrence, ...extra })
+        .expect(201);
+      return res.body as { id: string; nextRunAt: string; description: string; isActive: boolean };
+    }
+
+    it('semanal lunes y jueves 08:00: crea una campaña en cada ejecución, que se envía con las reglas normales', async () => {
+      await contact('DOCUMENTED');
+      const t = await template();
+      const preview = await api()
+        .post('/admin/campaign-schedules/preview')
+        .set(as(admin))
+        .send({ frequency: 'WEEKLY', daysOfWeek: [1, 4], timeOfDay: '08:00' })
+        .expect(200);
+      expect(preview.body.description).toBe('Cada semana: lunes y jueves a las 08:00');
+      expect(preview.body.runs).toHaveLength(5);
+      expect(preview.body.runs[0]).toMatchObject({ at: bogota('2026-11-26T08:00').toISOString(), insideWindow: true });
+
+      const s = await schedule(t.id, { frequency: 'WEEKLY', daysOfWeek: [1, 4], timeOfDay: '08:00' });
+      expect(s).toMatchObject({ isActive: true, nextRunAt: bogota('2026-11-26T08:00').toISOString() });
+      expect(await runner().runDue()).toBe(0); // todavía no es la hora
+
+      clock.current = bogota('2026-11-26T08:00');
+      expect(await runner().runDue()).toBe(1);
+      expect(await runner().runDue()).toBe(0); // no se crea dos veces
+      const campaign = await prisma.campaign.findFirstOrThrow({ where: { scheduleId: s.id } });
+      expect(campaign).toMatchObject({ name: 'Boletín semanal · 26/11/2026', status: 'RUNNING', createdById: null });
+      const after = await prisma.campaignSchedule.findUniqueOrThrow({ where: { id: s.id } });
+      expect(after).toMatchObject({ runs: 1, lastCampaignId: campaign.id, lastSkipReason: null });
+      expect(after.nextRunAt).toEqual(bogota('2026-11-30T08:00'));
+      await drive(campaign.id);
+      expect(cloudApi.sendTemplate).toHaveBeenCalledTimes(1);
+      expect(await prisma.auditLog.count({ where: { action: 'schedule.run', entityId: s.id } })).toBe(1);
+      expect(emit).toHaveBeenCalledWith('schedule:changed', { scheduleId: s.id });
+    });
+
+    it('si la ejecución anterior sigue activa, se omite esa vez (sin duplicar) y queda el motivo', async () => {
+      await contact('DOCUMENTED');
+      const s = await schedule((await template()).id, { frequency: 'DAILY', timeOfDay: '08:00' });
+      clock.current = bogota('2026-11-25T08:00');
+      await runner().runDue();
+      const first = await prisma.campaign.findFirstOrThrow({ where: { scheduleId: s.id } });
+      await api().post(`/admin/campaigns/${first.id}/pause`).set(as(admin)).expect(200);
+      clock.current = bogota('2026-11-26T08:00');
+      await runner().runDue();
+      expect(await prisma.campaign.count({ where: { scheduleId: s.id } })).toBe(1);
+      const list = await api().get('/admin/campaign-schedules').set(as(admin)).expect(200);
+      expect(list.body[0]).toMatchObject({ runs: 1, lastCampaign: { id: first.id, status: 'PAUSED' } });
+      expect(list.body[0].lastSkipReason).toMatch(/sigue activa/);
+    });
+
+    it('domingo: la campaña se crea pero respeta la Ley 2300 y espera al lunes 07:00', async () => {
+      await contact('DOCUMENTED');
+      const s = await schedule((await template()).id, { frequency: 'WEEKLY', daysOfWeek: [0], timeOfDay: '10:00' });
+      const preview = await api()
+        .post('/admin/campaign-schedules/preview')
+        .set(as(admin))
+        .send({ frequency: 'WEEKLY', daysOfWeek: [0], timeOfDay: '10:00' })
+        .expect(200);
+      expect(preview.body.runs[0]).toMatchObject({
+        insideWindow: false,
+        startsAt: bogota('2026-11-30T07:00').toISOString(),
+      });
+      clock.current = bogota('2026-11-29T10:00');
+      await runner().runDue();
+      const campaign = await prisma.campaign.findFirstOrThrow({ where: { scheduleId: s.id } });
+      expect(await engine.step(campaign.id)).toEqual({ kind: 'wait', ms: 21 * 3600_000, reason: 'WINDOW' });
+      expect(cloudApi.sendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('sin destinatarios se omite; pausar, reanudar, eliminar y plantilla protegida; solo ADMIN', async () => {
+      const t = await template();
+      const s = await schedule(t.id, {
+        frequency: 'MONTHLY',
+        dayOfMonth: 1,
+        timeOfDay: '09:00',
+        endDate: '2027-03-31',
+      });
+      expect(s.description).toBe('Cada mes, el día 1 a las 09:00 (hasta 31/03/2027)');
+      clock.current = bogota('2026-12-01T09:00');
+      await runner().runDue();
+      const skipped = await prisma.campaignSchedule.findUniqueOrThrow({ where: { id: s.id } });
+      expect(skipped.lastSkipReason).toMatch(/Ningún contacto/);
+      expect(skipped.nextRunAt).toEqual(bogota('2027-01-01T09:00'));
+
+      await api().delete(`/admin/templates/${t.id}`).set(as(admin)).expect(409);
+      const paused = await api().post(`/admin/campaign-schedules/${s.id}/pause`).set(as(admin)).expect(200);
+      expect(paused.body).toMatchObject({ isActive: false, nextRunAt: null });
+      clock.current = bogota('2027-02-10T12:00');
+      const resumed = await api().post(`/admin/campaign-schedules/${s.id}/resume`).set(as(admin)).expect(200);
+      expect(resumed.body.nextRunAt).toBe(bogota('2027-03-01T09:00').toISOString()); // no recupera las perdidas
+      await api().get('/admin/campaign-schedules').set(as(asesor)).expect(403);
+      await api().delete(`/admin/campaign-schedules/${s.id}`).set(as(admin)).expect(200);
+      expect(await prisma.campaignSchedule.count()).toBe(0);
+      expect(await prisma.auditLog.count({ where: { action: { startsWith: 'schedule.' } } })).toBe(5);
+
+      // Reglas inválidas
+      const bad = await api()
+        .post('/admin/campaign-schedules')
+        .set(as(admin))
+        .send({
+          name: 'Mal',
+          templateId: t.id,
+          audience: { type: 'all' },
+          recurrence: { frequency: 'WEEKLY', daysOfWeek: [], timeOfDay: '08:00' },
+        })
+        .expect(400);
+      expect(bad.body.message).toMatch(/al menos un día/);
     });
   });
 

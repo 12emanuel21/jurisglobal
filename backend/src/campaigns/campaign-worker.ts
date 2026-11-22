@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@ne
 import { DelayedError, Worker, type Job } from 'bullmq';
 import { promises as fs } from 'fs';
 import { CampaignEngine } from './campaign-engine';
+import { CampaignScheduleRunner } from './schedule-runner';
 import {
   CAMPAIGN_QUEUE,
   CampaignQueue,
@@ -30,6 +31,7 @@ export class CampaignWorkerService implements OnApplicationBootstrap, OnModuleDe
   constructor(
     private readonly engine: CampaignEngine,
     private readonly queue: CampaignQueue,
+    private readonly schedules: CampaignScheduleRunner,
   ) {}
 
   async onApplicationBootstrap() {
@@ -58,6 +60,8 @@ export class CampaignWorkerService implements OnApplicationBootstrap, OnModuleDe
   async process(job: Job<RunJobData>, token?: string): Promise<string> {
     if (job.name === RECONCILE_JOB) {
       await this.engine.reconcile();
+      // Campañas recurrentes cuya hora llegó (la revisión corre cada minuto)
+      await this.schedules.runDue();
       return 'reconciled';
     }
     if (job.name !== RUN_JOB) return 'ignored';

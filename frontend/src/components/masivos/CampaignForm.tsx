@@ -15,8 +15,11 @@ import {
   type ImportPreview,
   type MassContact,
   type MassTemplate,
+  type Recurrence,
+  type SchedulePreview,
   type VariableRule,
 } from '@/lib/masivos';
+import { DEFAULT_RECURRENCE, RecurrenceFields, recurrencePayload } from './RecurrenceFields';
 import { ContactImporter } from './ContactImporter';
 import { WhatsAppPreview } from './WhatsAppPreview';
 
@@ -26,13 +29,15 @@ type AudienceChoice = Audience['type'] | 'file';
 interface Props {
   onClose: () => void;
   onCreated: (campaignId: string) => void;
+  /** Se creó una campaña recurrente (no hay campaña todavía: la crea el worker en cada ejecución) */
+  onScheduled?: (scheduleId: string) => void;
 }
 
 /**
  * Nueva campaña: plantilla, audiencia, variables y programación, con vista previa en vivo de
  * cuántos la reciben y cuántos quedan excluidos (baja, no verificado, tope de frecuencia).
  */
-export function CampaignForm({ onClose, onCreated }: Props) {
+export function CampaignForm({ onClose, onCreated, onScheduled }: Props) {
   const { sudoFetch } = useSudoMode();
   const [templates, setTemplates] = useState<MassTemplate[] | null>(null);
   const [sources, setSources] = useState<Array<{ source: string; count: number }>>([]);
@@ -45,7 +50,9 @@ export function CampaignForm({ onClose, onCreated }: Props) {
   const [chosenSources, setChosenSources] = useState<string[]>([]);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [mapping, setMapping] = useState<Record<string, VariableRule>>({});
-  const [when, setWhen] = useState<'now' | 'later'>('now');
+  const [when, setWhen] = useState<'now' | 'later' | 'repeat'>('now');
+  const [recurrence, setRecurrence] = useState<Recurrence>(DEFAULT_RECURRENCE);
+  const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [dryRun, setDryRun] = useState(false);
   const [preview, setPreview] = useState<{ key: string; data: CampaignPreview | null; error: string | null } | null>(null);
@@ -121,12 +128,27 @@ export function CampaignForm({ onClose, onCreated }: Props) {
       : `Con un nombre de ejemplo (${EXAMPLE_NAME})`;
   const sampleParams = template ? resolveVariables(variableMapping, template.variableCount, sampleName) : [];
   const scheduledIso = when === 'later' && scheduledLocal ? bogotaLocalToIso(scheduledLocal) : undefined;
-  const ready = Boolean(name.trim().length >= 3 && current?.data && current.data.recipients > 0 && (when === 'now' || scheduledIso));
+  const repeat = when === 'repeat';
+  // Recurrente: basta con que la audiencia y la regla sean válidas (los destinatarios se recalculan en cada ejecución)
+  const ready = Boolean(
+    name.trim().length >= 3 &&
+      current?.data &&
+      (repeat ? schedulePreview && current.data.problems.length === 0 : current.data.recipients > 0 && (when === 'now' || scheduledIso)),
+  );
 
   const launch = async () => {
     setBusy(true);
     setError(null);
     try {
+      if (repeat) {
+        const res = await sudoFetch('/admin/campaign-schedules', {
+          method: 'POST',
+          body: JSON.stringify({ name: name.trim(), templateId, audience, variableMapping, dryRun, recurrence: recurrencePayload(recurrence) }),
+        });
+        if (!res.ok) throw new Error((await apiErrorMessage(res, 'No se pudo crear la campaña recurrente')).message);
+        onScheduled?.(((await res.json()) as { id: string }).id);
+        return;
+      }
       // Lanzar es sensible: con 2FA activo el backend pide el código (Sudo Mode) y sudoFetch lo solicita
       const res = await sudoFetch('/admin/campaigns', {
         method: 'POST',
@@ -275,7 +297,11 @@ export function CampaignForm({ onClose, onCreated }: Props) {
               <label className="tap inline-flex items-center gap-2 text-sm">
                 <input type="radio" name="cf-when" checked={when === 'later'} onChange={() => setWhen('later')} /> Programar
               </label>
+              <label className="tap inline-flex items-center gap-2 text-sm">
+                <input type="radio" name="cf-when" checked={repeat} onChange={() => setWhen('repeat')} /> Repetir (campaña recurrente)
+              </label>
             </div>
+            {repeat && <RecurrenceFields value={recurrence} onChange={setRecurrence} onValidity={setSchedulePreview} />}
             {when === 'later' && (
               <div className="mt-2 max-w-xs">
                 <label htmlFor="cf-date" className={label}>
@@ -333,15 +359,22 @@ export function CampaignForm({ onClose, onCreated }: Props) {
       <div className="mt-5 flex flex-wrap items-center gap-2">
         {!confirming ? (
           <button type="button" disabled={!ready} onClick={() => setConfirming(true)} className={btnPrimary}>
-            <Rocket className="h-4 w-4" /> {when === 'later' ? 'Programar campaña' : 'Lanzar campaña'}
+            <Rocket className="h-4 w-4" /> {repeat ? 'Crear campaña recurrente' : when === 'later' ? 'Programar campaña' : 'Lanzar campaña'}
           </button>
         ) : (
           <div role="group" aria-label="Confirmar lanzamiento" className="flex flex-wrap items-center gap-2 rounded-xl border border-gold/60 bg-[#fdf8ec] p-3 dark:bg-gold/10">
-            <p className="text-sm text-navy dark:text-slate-100">
-              Se enviará a <strong>{current?.data?.recipients ?? 0}</strong> contactos{dryRun ? ' (simulación, sin llamar a Meta)' : ''}. ¿Confirmas?
-            </p>
+            {repeat ? (
+              <p className="text-sm text-navy dark:text-slate-100">
+                <strong>{schedulePreview?.description}</strong>: en cada ejecución se crea una campaña con la audiencia de ese momento (hoy{' '}
+                {current?.data?.recipients ?? 0} contactos){dryRun ? ', en simulación' : ''}. ¿Confirmas?
+              </p>
+            ) : (
+              <p className="text-sm text-navy dark:text-slate-100">
+                Se enviará a <strong>{current?.data?.recipients ?? 0}</strong> contactos{dryRun ? ' (simulación, sin llamar a Meta)' : ''}. ¿Confirmas?
+              </p>
+            )}
             <button type="button" onClick={() => void launch()} disabled={busy} className={btnPrimary}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Confirmar y lanzar
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />} {repeat ? 'Confirmar y programar' : 'Confirmar y lanzar'}
             </button>
             <button type="button" onClick={() => setConfirming(false)} className={btnGhost}>
               Volver

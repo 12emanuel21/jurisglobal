@@ -168,9 +168,11 @@ export class TemplatesService {
   async remove(actor: AuthenticatedUser, id: string) {
     const t = await this.prisma.messageTemplate.findUnique({
       where: { id },
-      include: { _count: { select: { campaigns: true } } },
+      include: { _count: { select: { campaigns: true, schedules: true } } },
     });
     if (!t) throw new NotFoundException('Plantilla no encontrada');
+    if (t._count.schedules)
+      throw new ConflictException('La plantilla está en una campaña recurrente: elimina primero esa programación');
     if (t._count.campaigns)
       throw new ConflictException('La plantilla ya se usó en campañas: no se puede eliminar (queda en el historial)');
     await this.prisma.messageTemplate.delete({ where: { id } });
