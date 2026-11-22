@@ -12,26 +12,43 @@ import { ChatQueue } from './chat-queue';
 import { parseInboundMessage, webhookValues, type ParsedInbound } from './inbound-parse';
 import { describeChatMedia, storeChatMedia, type StoredChatMedia } from './media';
 import { isStatusUpgrade, parseMetaStatus } from './message-status';
+import { ChatbotService } from '../chatbot/chatbot.service';
 
 /** Mensajes con más antigüedad que esto se descartan (anti-replay; idea del módulo Django) */
 const MAX_MESSAGE_AGE_MS = 30 * 60 * 1000;
 
 /**
  * Procesa los webhooks ya autenticados: mensajes entrantes (con adjuntos y notas de voz) y estados
- * de entrega. Guarda todo en Conversation/Message para el Inbox. El flujo del chatbot se conecta
- * en la Etapa 4 (handleInboundForBot); en la Etapa 1 solo se registra y se notifica al panel.
+ * de entrega. Guarda todo en Conversation/Message para el Inbox, avisa al panel y pasa cada
+ * mensaje nuevo al chatbot (que respeta la pausa del Inbox y la baja).
  */
 @Injectable()
 export class WebhookProcessor {
   private readonly logger = new Logger(WebhookProcessor.name);
   private readonly queue = new ChatQueue();
+  private readonly inflight = new Set<Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
     private readonly cloudApi: WhatsAppCloudApi,
     private readonly ai: AiService,
+    private readonly chatbot: ChatbotService,
   ) {}
+
+  /** Procesa en segundo plano (el webhook ya respondió 200); los errores se registran sin datos personales */
+  enqueue(payload: unknown): void {
+    const task = this.handlePayload(payload).catch((error) =>
+      this.logger.error(`Error procesando webhook: ${(error as Error).message}`),
+    );
+    this.inflight.add(task);
+    void task.finally(() => this.inflight.delete(task));
+  }
+
+  /** Espera a que termine todo lo encolado (apagado ordenado y pruebas) */
+  async drain(): Promise<void> {
+    while (this.inflight.size) await Promise.all([...this.inflight]);
+  }
 
   async handlePayload(payload: any): Promise<void> {
     const ownPhoneId = loadEnv().WHATSAPP_PHONE_NUMBER_ID;
@@ -67,16 +84,19 @@ export class WebhookProcessor {
 
     const media = await this.captureMedia(msg);
     let body = msg.text;
+    let transcript: string | null = null;
     if (media?.stored?.kind === 'AUDIO' && media.buffer && loadEnv().GOOGLE_GENERATIVE_AI_API_KEY) {
-      body = await this.ai.transcribeAudio(media.buffer, media.stored.mime).catch((error) => {
+      transcript = await this.ai.transcribeAudio(media.buffer, media.stored.mime).catch((error) => {
         this.logger.warn(`No se pudo transcribir una nota de voz: ${(error as Error).message}`);
         return '';
       });
+      body = transcript;
     }
     if (media && !body)
       body = describeChatMedia(media.stored?.kind ?? 'UNSUPPORTED', null, media.stored?.name ?? msg.media?.filename);
 
     const now = new Date();
+    const previous = await this.prisma.conversation.findUnique({ where: { waId }, select: { lastMessageAt: true } });
     const conversation = await this.prisma.conversation.upsert({
       where: { waId },
       create: { waId, profileName, lastInboundAt: now, lastMessageAt: now },
@@ -109,7 +129,20 @@ export class WebhookProcessor {
       if (isUniqueViolation(error)) return; // el mismo wamid llegó en paralelo
       throw error;
     }
-    // Etapa 4: aquí entra el flujo del chatbot (consentimiento, datos, motivo, STOP).
+
+    // Una nota de voz cuenta como AUDIO aunque no se haya podido guardar (sin descarga = sin texto)
+    const mediaKind = media ? (media.stored?.kind ?? (msg.media?.type === 'audio' ? 'AUDIO' : 'UNSUPPORTED')) : null;
+    await this.chatbot.handleInbound({
+      conversation,
+      previousMessageAt: previous?.lastMessageAt ?? null,
+      waMessageId: msg.waMessageId,
+      type: msg.type,
+      text: msg.text,
+      interactiveId: msg.interactiveId,
+      mediaKind,
+      transcript: mediaKind === 'AUDIO' ? (transcript ?? '') : null,
+      timestamp: msg.timestamp,
+    });
   }
 
   /** Descarga y guarda el adjunto. Video y sticker se anotan como no soportados. Nunca lanza. */

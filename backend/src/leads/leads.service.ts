@@ -24,6 +24,12 @@ export interface SubmitLeadInput {
   /** web: {ip, userAgent}; whatsapp: {wamid, buttonId} */
   evidence?: Record<string, string | null | undefined>;
   utm?: Record<string, string | undefined>;
+  /**
+   * Autorizaciones ya registradas en el momento en que se dieron (el bot guarda el Consent al tocar
+   * «Acepto», antes de pedir los datos). Se enlazan al lead en lugar de duplicarlas; solo cuentan las
+   * otorgadas al mismo teléfono y aún sin lead.
+   */
+  recordedConsentIds?: string[];
 }
 
 export interface SubmitLeadResult {
@@ -206,17 +212,31 @@ export class LeadsService {
         });
       }
 
+      const recorded = input.recordedConsentIds?.length
+        ? await tx.consent.findMany({
+            where: { id: { in: input.recordedConsentIds }, leadId: null, phoneHash: hash, granted: true },
+            select: { id: true, purpose: true },
+          })
+        : [];
+      if (recorded.length) {
+        await tx.consent.updateMany({
+          where: { id: { in: recorded.map((c) => c.id) } },
+          data: { leadId, contactId: contact.id },
+        });
+      }
       await tx.consent.createMany({
-        data: consents.map((c) => ({
-          ...c,
-          leadId,
-          contactId: contact.id,
-          phone,
-          phoneHash: hash,
-          granted: true,
-          channel,
-          evidence: input.evidence ? (input.evidence as Prisma.InputJsonValue) : undefined,
-        })),
+        data: consents
+          .filter((c) => !recorded.some((r) => r.purpose === c.purpose))
+          .map((c) => ({
+            ...c,
+            leadId,
+            contactId: contact.id,
+            phone,
+            phoneHash: hash,
+            granted: true,
+            channel,
+            evidence: input.evidence ? (input.evidence as Prisma.InputJsonValue) : undefined,
+          })),
       });
 
       return { leadId, isNew: !existing, phone: `+${phone}`, submissionCount, differences };

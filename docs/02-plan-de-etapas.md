@@ -43,7 +43,7 @@ Resultado verificado:
 
 ## Ajustes al plan por las decisiones de la Etapa 0
 
-- **Etapa 3 (landing) y Etapa 4 (bot):** leen `showConsultationPrice` y `consultationPrice`. Con el interruptor apagado presentan la asesoría inicial como gratuita o no muestran cobro; encendido, muestran el valor configurado. La edición se hace en la Etapa 5 (Configuración).
+- **Etapa 3 (landing) y Etapa 4 (bot):** leen `showConsultationPrice` y `consultationPrice`. Con el interruptor apagado no muestran ningún valor y nunca dicen «gratis» (un asesor confirma las condiciones); encendido, muestran el valor configurado. La edición se hace en la Etapa 5 (Configuración).
 - **Etapa 4:** el Inbox, la descarga y validación de adjuntos y la transcripción de notas de voz ya están hechos. Queda conectar el flujo del bot en el punto marcado en `webhook.processor.ts`.
 - **Etapa 5:** el Inbox ya existe. Faltan los leads, la configuración (con el interruptor de precio), los usuarios y la **anonimización por ADMIN** (Ley 1581): borra nombre, correo y teléfono del lead o contacto, conserva `Consent` con `phoneHash` y la supresión, y queda auditada.
 - **Etapa 6:** el importador exige Origen y Autorización. Los lotes sin soporte documental para JurisGlobal quedan `UNVERIFIED` y solo admiten campañas `OPT_IN` (confirmación) antes de cualquier marketing. Topes iniciales: 1/día, 2/semana y 250/día.
@@ -154,9 +154,59 @@ Pruebas:
 - Los textos de autorización dicen JurisGlobal y se toman de la configuración, no del código.
 - No aparecen los datos de contacto de relleno (ESP §2), o quedan marcados como provisionales en variables.
 
-## Etapa 4 · Chatbot de WhatsApp (Cloud API)
+## Etapa 4 · Chatbot de WhatsApp (Cloud API) — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
 
-**Qué se construye**
+Lo construido:
+- **Flujo determinista** (`backend/src/chatbot/flow.ts`, lógica pura, y `chatbot.service.ts`), con el estado y los datos temporales en `Conversation.flowState` / `flowData`:
+  - `IDLE → ASK_CONSENT → ASK_NAME → ASK_EMAIL → (ASK_PHONE) → ASK_MOTIVO → DONE`.
+  - Saludo con la identidad de JurisGlobal y autorización (Ley 1581) con botones **Acepto / No acepto** y el enlace al Aviso de Privacidad, en un solo mensaje interactivo.
+  - «Acepto» registra el `Consent` en ese momento (canal WHATSAPP, texto exacto, versión, `wamid`, botón y hora). Al registrar el lead ese mismo `Consent` se enlaza, sin duplicarlo.
+  - «No acepto»: explica que sin autorización no se puede registrar, comparte la web y el correo institucional y vuelve a `IDLE` sin lead. La negativa queda en `Consent` solo con el seudónimo (`phoneHash`).
+  - Nombre: solo letras; quita «me llamo…», capitaliza y rechaza números, símbolos, saludos y peticiones.
+  - Correo: se extrae del texto («mi correo es…») y se valida igual que en la web; si es inválido se pide de nuevo sin perder el avance.
+  - Motivo: motivos activos desde la BD; **lista interactiva** si hay más de 3 y **botones** si hay 3 o menos. También acepta el número o el nombre escrito.
+  - Teléfono: el del remitente (`57XXXXXXXXXX`). Si el WhatsApp no es colombiano, se pide un número de Colombia (`ASK_PHONE`).
+  - Registro con `LeadsService.submit()` (`origin WHATSAPP`): deduplicación, nota automática, correo y Socket.io, igual que la web. Luego, resumen y cierre.
+  - Reinicio limpio tras **24 h** sin mensajes o con «reiniciar» / «inicio».
+- **Inbox:** si la conversación está pausada (`botPausedAt`, con reactivación a las 12 h), el mensaje se guarda y se notifica por Socket.io, pero el bot no responde.
+- **STOP:**
+  - Palabras inequívocas como mensaje completo: «STOP», «BAJA», «NO QUIERO MÁS MENSAJES»… «No quiero que me embarguen» no es una baja.
+  - Marca el `Contact` como `OPTED_OUT`, agrega el seudónimo a `Suppression`, registra la revocación (`Consent MARKETING_WHATSAPP granted=false`), deja una nota en el lead y un marcador en el Inbox, y confirma.
+  - Se honra aunque el bot esté pausado (sin respuesta automática).
+  - Después el bot calla hasta que la persona escriba «INICIO».
+- **Fuera de flujo:** Gemini con cadena de modelos y tiempo máximo por intento.
+  - El prompt lleva la identidad (Barranquilla, atención virtual y presencial inicial, cobertura nacional) y la tarifa real: «$100.000 COP» con el interruptor encendido; apagado, «un asesor confirmará las condiciones», nunca «gratis».
+  - La respuesta se recorta a 2 frases y se descarta si dice «gratis», promete o garantiza. El bot añade la repregunta del paso pendiente.
+  - Respuesta fija segura si Gemini falla, tarda, no está configurado o se pasa el tope de 6 respuestas por sesión.
+  - A Gemini solo le llega la pregunta, no los datos ya capturados.
+  - Un modelo inexistente o retirado (404) también salta al siguiente de la cadena.
+- **Multimedia:**
+  - Nota de voz: se usa su transcripción si trae el dato; si no, se pide por escrito. La autorización nunca se toma de un audio.
+  - PDF o imagen: queda en el Inbox y se pide el dato pendiente.
+- **Webhook:**
+  - `POST /webhooks/whatsapp` es la URL a registrar en Meta; `/meta/webhook` queda como alias. nginx tiene su propia `location`.
+  - Las respuestas del bot se guardan en `Message` (author BOT) con su `wamid`. Los `statuses` (`sent`, `delivered`, `read`, `failed`) las actualizan en orden monótono, con código y detalle del error, lo que deja lista la base para la Etapa 6.
+  - Si Meta rechaza un envío o WhatsApp no está configurado, el mensaje queda `FAILED` y visible en el Inbox.
+- `./jg lint` ahora también corre ESLint en el backend.
+
+Pruebas:
+- 52 unitarias nuevas: 51 del flujo y el prompt, y 1 del modelo 404. En total son 155 unitarias en 20 suites; se retiró `chat-session.ts` (sesión de 3 h, sin uso: la regla ahora es de 24 h).
+- Frontend: 27 de Vitest, sin cambios.
+- 20 de integración nuevas con webhooks firmados con HMAC contra PostgreSQL real, cubriendo:
+  - flujo completo, botones con 3 motivos o menos, «No acepto» y correo inválido;
+  - Gemini con el interruptor encendido y apagado, saturado y con «gratis» descartado;
+  - STOP, Inbox pausado, deduplicación con la web y estados de entrega;
+  - firma inválida, `wamid` duplicado, reinicio a las 24 h y «reiniciar»;
+  - nota de voz, PDF y número extranjero.
+  - Con las 24 de la Etapa 2 suman 44.
+- E2E por nginx (`127.0.0.1:8088/webhooks/whatsapp`) con firma real: flujo completo, lead WHATSAPP, STOP y silencio posterior. Los datos de prueba se borraron.
+
+Pendiente para la prueba real (Etapa 4/7):
+- Credenciales de la app de Meta propia (`WHATSAPP_*` y `META_APP_SECRET` reales) y la clave de Gemini.
+- Registrar el webhook y probar con el número de JurisGlobal.
+- Confirmar en la documentación vigente de Meta la versión de Graph y los límites de interactivos.
+
+**Qué se construye** (plan original)
 - `whatsapp/cloud-api.client.ts`:
   - texto, interactivos `button` y `list`, plantilla, marcar como leído y descarga de media;
   - versión de Graph tomada de una variable.

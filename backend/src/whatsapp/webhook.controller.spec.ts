@@ -4,7 +4,7 @@ import { resetEnvCache } from '../config/env';
 import { WebhookController } from './webhook.controller';
 
 describe('WebhookController (verificación y firma)', () => {
-  const processor = { handlePayload: jest.fn().mockResolvedValue(undefined) };
+  const processor = { enqueue: jest.fn() };
   const controller = new WebhookController(processor as any);
 
   beforeAll(() => {
@@ -36,13 +36,13 @@ describe('WebhookController (verificación y firma)', () => {
     expect(controller.receive({ headers: { 'x-hub-signature-256': sig }, rawBody, body } as any)).toBe(
       'EVENT_RECEIVED',
     );
-    expect(processor.handlePayload).toHaveBeenCalledWith(body);
+    expect(processor.enqueue).toHaveBeenCalledWith(body);
 
-    processor.handlePayload.mockClear();
+    processor.enqueue.mockClear();
     expect(() => controller.receive({ headers: { 'x-hub-signature-256': 'sha256=00' }, rawBody, body } as any)).toThrow(
       ForbiddenException,
     );
     expect(() => controller.receive({ headers: {}, rawBody, body } as any)).toThrow(ForbiddenException);
-    expect(processor.handlePayload).not.toHaveBeenCalled();
+    expect(processor.enqueue).not.toHaveBeenCalled();
   });
 });

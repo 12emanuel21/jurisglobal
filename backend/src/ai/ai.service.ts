@@ -3,12 +3,11 @@ import { generateObject, generateText, type ModelMessage } from 'ai';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
 import { isOverloadError, resolveModelChain, resolveTimeoutMs, runWithModelFallback } from './model-fallback';
-import { OUT_OF_FLOW_SYSTEM_PROMPT } from './prompts';
+import { buildOutOfFlowSystemPrompt, type OutOfFlowContext } from './prompts';
 
 /** Respuesta breve a una pregunta fuera del flujo del formulario (ESP §6.3) */
 export const OutOfFlowAnswerSchema = z.object({
-  reply: z.string().describe('Respuesta breve (máx. 3 frases), sin asesoría jurídica ni promesas'),
-  backToFlow: z.boolean().describe('true si hay que retomar el formulario después de responder'),
+  reply: z.string().describe('Respuesta de 1 o 2 frases cortas, sin asesoría jurídica, promesas ni preguntas'),
 });
 export type OutOfFlowAnswer = z.infer<typeof OutOfFlowAnswerSchema>;
 
@@ -69,15 +68,17 @@ export class AiService {
   }
 
   /**
-   * Respuesta breve a una pregunta fuera del flujo del formulario. Nunca da asesoría jurídica ni
-   * promete resultados, tiempos o precios cerrados. Un JSON fuera del esquema se reintenta una vez;
-   * la saturación ya la resolvió la cadena de modelos.
+   * Respuesta breve a una pregunta fuera del flujo del formulario, con la tarifa real inyectada en
+   * el prompt. Nunca da asesoría jurídica ni promete resultados, tiempos o precios. Solo recibe la
+   * pregunta (minimización: los datos ya capturados no viajan a Gemini). Un JSON fuera del esquema
+   * se reintenta una vez; la saturación ya la resolvió la cadena de modelos.
    */
   async answerOutOfFlow(
     question: string,
-    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    context: OutOfFlowContext = { consultationPrice: null, pendingStep: 'sus datos' },
   ): Promise<OutOfFlowAnswer> {
-    const messages: ModelMessage[] = [...history.slice(-10), { role: 'user', content: question }];
+    const messages: ModelMessage[] = [{ role: 'user', content: question }];
+    const system = buildOutOfFlowSystemPrompt(context);
     const run = () =>
       this.withModels('Fuera de flujo', (model, abortSignal) =>
         generateObject({
@@ -85,7 +86,7 @@ export class AiService {
           maxRetries: 0,
           abortSignal,
           schema: OutOfFlowAnswerSchema,
-          system: OUT_OF_FLOW_SYSTEM_PROMPT,
+          system,
           messages,
         }),
       );

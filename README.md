@@ -32,7 +32,7 @@ que corren en el mismo servidor.
 
 | Servicio | URL (solo 127.0.0.1) |
 |---|---|
-| Entrada única (nginx) | http://127.0.0.1:8088 · `/` web · `/panel` panel · `/api/*` API · `/meta/webhook` |
+| Entrada única (nginx) | http://127.0.0.1:8088 · `/` web · `/panel` panel · `/api/*` API · `/webhooks/whatsapp` |
 | API directa (dev) | http://127.0.0.1:4100/health |
 | Next directo (dev) | http://127.0.0.1:3100 |
 | PostgreSQL / Redis (dev) | 127.0.0.1:55432 / 127.0.0.1:56379 |
@@ -54,7 +54,7 @@ docs/       Especificación y documentos de diseño
 | `GET /api/public/config` | Motivos activos, `showConsultationPrice` / `consultationPrice`, enlaces legales y textos de autorización vigentes |
 | `POST /api/leads` | Formulario unificado. Cuerpo: `fullName`, `phone`, `email`, `motivo` (id o nombre), `origin: "web"`, `privacyAndTerms: true`, `contactAndDataProcessing: true`, `utm?` |
 | `GET /api/health` | Estado de PostgreSQL y Redis |
-| `GET/POST /meta/webhook` | Webhook de WhatsApp Cloud API (token de verificación + firma HMAC) |
+| `GET/POST /webhooks/whatsapp` | Webhook de WhatsApp Cloud API (token de verificación + firma HMAC). Alias: `/meta/webhook` |
 
 ## Web pública (Etapa 3)
 
@@ -70,6 +70,21 @@ basta con reiniciar el contenedor `web`. Los valores actuales son de relleno.
 
 Logotipo: `frontend/src/components/brand/Logo.tsx` es un vectorial provisional; para usar el archivo
 oficial, ponerlo en `frontend/public/brand/` y reemplazar `<LogoMark/>` en ese componente.
+
+## Chatbot de WhatsApp (Etapa 4)
+
+Flujo guiado y determinista en `backend/src/chatbot/`: autorización (Acepto / No acepto) → nombre →
+correo → motivo (lista si hay más de 3 activos, botones si hay 3 o menos) → lead `WHATSAPP` por el
+mismo `LeadsService` de la web. No clasifica, no asesora y no promete.
+
+- **STOP / BAJA / NO QUIERO MÁS MENSAJES** (mensaje completo): baja inmediata en `Contact`,
+  `Suppression` y `Consent`; luego el bot calla hasta «INICIO».
+- **Inbox:** con la conversación pausada el bot no responde (el mensaje se guarda y se notifica).
+- **Preguntas fuera de flujo:** Gemini con respaldo y tarifa real (`showConsultationPrice`). Si falla,
+  hay respuesta fija; nunca dice «gratis».
+- Reinicio tras 24 h sin mensajes o con «reiniciar» / «inicio».
+- Textos editables en `Setting` (`bot.*`, `consent.whatsapp.contact`, `marketing.stopKeywords`,
+  `company.website`, `company.email`).
 
 ## Pruebas
 

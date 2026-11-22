@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
-import { WhatsAppCloudApi } from './cloud-api.client';
+import { ChatbotModule } from '../chatbot/chatbot.module';
+import { WhatsAppApiModule } from './whatsapp-api.module';
 import { WebhookController } from './webhook.controller';
 import { WebhookProcessor } from './webhook.processor';
 
 @Module({
-  imports: [AiModule],
+  imports: [AiModule, WhatsAppApiModule, ChatbotModule],
   controllers: [WebhookController],
-  providers: [WhatsAppCloudApi, WebhookProcessor],
-  exports: [WhatsAppCloudApi],
+  providers: [WebhookProcessor],
+  exports: [WhatsAppApiModule],
 })
 export class WhatsAppModule {}

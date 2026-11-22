@@ -9,7 +9,7 @@ export interface ConsentText {
 }
 
 export const SETTING_DEFAULTS = {
-  /** Interruptor del precio de la asesoría inicial: apagado = la web y el bot la presentan sin costo */
+  /** Interruptor del precio de la asesoría inicial: apagado = la web y el bot no muestran valor (nunca "gratis") */
   showConsultationPrice: false as boolean,
   /** Valor en COP (entero). Por confirmar (ESP §10.2: referencia $80.000–$150.000) */
   consultationPrice: null as number | null,
@@ -22,8 +22,23 @@ export const SETTING_DEFAULTS = {
   'marketing.jitterMs': { min: 4000, max: 15000 },
   /** Pausa automática de campañas si Meta marca la calidad del número en rojo */
   'marketing.pauseOnQualityRed': true,
-  /** Palabras que dan de baja (se comparan sin tildes ni mayúsculas) */
-  'marketing.stopKeywords': ['stop', 'baja', 'parar', 'no mas', 'no quiero', 'cancelar', 'darme de baja'],
+  /**
+   * Expresiones que dan de baja: se comparan con el mensaje COMPLETO, sin tildes, mayúsculas ni signos
+   * ("No quiero que me embarguen" no es una baja). Solo frases inequívocas.
+   */
+  'marketing.stopKeywords': [
+    'stop',
+    'baja',
+    'darme de baja',
+    'dar de baja',
+    'no quiero mas mensajes',
+    'no quiero recibir mas mensajes',
+    'no mas mensajes',
+    'no me escriban mas',
+    'no me envien mas mensajes',
+    'cancelar suscripcion',
+    'unsubscribe',
+  ],
 
   /** Destinatarios del correo de lead nuevo (por ahora, el correo del desarrollador: se completa en Configuración) */
   'notify.leadEmails': [] as string[],
@@ -34,6 +49,9 @@ export const SETTING_DEFAULTS = {
   'company.name': 'JURISGLOBAL, Soluciones Jurídicas y Financieras',
   'company.nit': null as string | null,
   'company.slogan': 'Tu tranquilidad, nuestra misión.',
+  /** Canales institucionales que el bot comparte (vacíos: PUBLIC_BASE_URL y NEXT_PUBLIC_CONTACT_EMAIL) */
+  'company.website': null as string | null,
+  'company.email': null as string | null,
 
   /** Autorizaciones del formulario web (ESP §5). Cambiar el texto = subir la versión */
   'consent.web.privacy': {
@@ -50,15 +68,15 @@ export const SETTING_DEFAULTS = {
     text: 'Para ayudarte, JurisGlobal necesita tu autorización para tratar tus datos personales (nombre, correo y teléfono) con el fin de contactarte por una cuenta institucional y verificada, según nuestro Aviso de Privacidad. ¿Nos autorizas?',
   },
 
-  /** Textos del bot (borrador; se ajustan en la Etapa 4) */
+  /** Textos del bot (Etapa 4; editables en Configuración, Etapa 5). Formato de WhatsApp: *negrita* */
   'bot.greeting':
-    '¡Hola! 👋 Te damos la bienvenida a JurisGlobal, Soluciones Jurídicas y Financieras. Te ayudo a dejar tus datos para que un asesor te contacte.',
+    '¡Hola! 👋 Te damos la bienvenida a *JurisGlobal*, Soluciones Jurídicas y Financieras. Te ayudaré a dejar tus datos para que un asesor se comunique contigo por llamada o correo.',
   'bot.declined':
-    'Entendido. Sin tu autorización no podemos registrar tus datos. Si cambias de opinión, escríbenos de nuevo por este canal institucional.',
+    'Entendido, respetamos tu decisión. Sin tu autorización no podemos registrar tus datos por este medio. Si lo prefieres, puedes contactarnos por nuestros canales institucionales:',
   'bot.closing':
-    '¡Gracias! Un asesor de JurisGlobal se comunicará contigo por llamada o correo. Tu mejor decisión hoy, tu tranquilidad mañana.',
+    'Gracias, hemos registrado tus datos. Un asesor de JurisGlobal se comunicará contigo pronto por llamada o correo.',
   'bot.optOutConfirmation':
-    'Listo, no volverás a recibir mensajes informativos de JurisGlobal. Si necesitas algo, puedes escribirnos cuando quieras.',
+    'Listo, registramos tu solicitud: no volverás a recibir mensajes automáticos de JurisGlobal por este medio. Si más adelante quieres dejar tus datos, escribe *INICIO*.',
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

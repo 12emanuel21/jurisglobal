@@ -47,6 +47,7 @@ test:
 
 lint:
 	$(DEV) exec api npx tsc --noEmit --incremental false
+	$(DEV) exec api npx eslint --quiet "{src,test}/**/*.ts"
 	$(DEV) exec web npx tsc --noEmit --incremental false
 	$(DEV) exec web npx eslint
 

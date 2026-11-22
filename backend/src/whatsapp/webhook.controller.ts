@@ -7,14 +7,15 @@ import { isValidMetaSignature, safeEqual } from '../config/secrets';
 import { WebhookProcessor } from './webhook.processor';
 
 /**
- * Webhook de WhatsApp Cloud API. Ruta /meta/webhook (nginx la deja intacta: la firma se calcula
- * sobre el cuerpo crudo). Reescrito frente a KovalCloud:
+ * Webhook de WhatsApp Cloud API: /webhooks/whatsapp (URL a registrar en Meta) y /meta/webhook
+ * (alias de la Etapa 1). nginx deja ruta y cuerpo intactos: la firma se calcula sobre el cuerpo
+ * crudo. Reescrito frente a KovalCloud:
  * - GET estricto: exige hub.mode=subscribe y hub.verify_token === WHATSAPP_VERIFY_TOKEN
  *   (KovalCloud aceptaba el slug o la ausencia de token).
  * - POST: firma HMAC obligatoria con META_APP_SECRET; nunca se registra el payload (datos personales).
  * - Responde 200 de inmediato y procesa en segundo plano todos los entry/changes.
  */
-@Controller('meta/webhook')
+@Controller(['webhooks/whatsapp', 'meta/webhook'])
 @SkipThrottle()
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
@@ -51,9 +52,7 @@ export class WebhookController {
       this.logger.warn('⛔ Webhook con firma inválida o sin META_APP_SECRET: descartado');
       throw new ForbiddenException();
     }
-    void this.processor
-      .handlePayload(req.body)
-      .catch((error) => this.logger.error(`Error procesando webhook: ${(error as Error).message}`));
+    this.processor.enqueue(req.body);
     return 'EVENT_RECEIVED';
   }
 }

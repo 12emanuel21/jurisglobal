@@ -2,6 +2,7 @@ import { generateObject, generateText } from 'ai';
 import { AiService } from './ai.service';
 import {
   AllModelsUnavailableError,
+  isModelNotFoundError,
   isOverloadError,
   resolveModelChain,
   resolveTimeoutMs,
@@ -69,6 +70,20 @@ describe('Cadena de modelos de Gemini', () => {
     expect(call.mock.calls[0][1]).toBeInstanceOf(AbortSignal);
   });
 
+  it('un modelo inexistente o retirado (404) como principal: responde el siguiente de la cadena', async () => {
+    const notFound = Object.assign(new Error('models/gemini-9-ultra is not found for API version v1beta'), {
+      name: 'AI_APICallError',
+      statusCode: 404,
+    });
+    const call = jest.fn().mockRejectedValueOnce(notFound).mockResolvedValueOnce('respuesta');
+    await expect(
+      runWithModelFallback(['gemini-9-ultra', 'gemini-2.5-flash'], call, { timeoutMs: 1000, logger: silentLogger }),
+    ).resolves.toBe('respuesta');
+    expect(isModelNotFoundError(notFound)).toBe(true);
+    expect(isModelNotFoundError({ statusCode: 400, message: 'Invalid argument' })).toBe(false);
+    expect(isModelNotFoundError({ statusCode: 401, message: 'API key not found' })).toBe(false);
+  });
+
   it('un modelo que no responde a tiempo se aborta y se usa el siguiente', async () => {
     const hang = (_model: string, signal: AbortSignal) =>
       new Promise<string>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason as Error)));
@@ -106,7 +121,7 @@ describe('AiService con modelo de respaldo', () => {
   afterAll(() => {
     process.env = env;
   });
-  const intent = { reply: '¡Hola! Te ayudo a dejar tus datos.', backToFlow: true };
+  const intent = { reply: '¡Hola! Te ayudo a dejar tus datos.' };
 
   it('"high demand" en gemini-2.5-flash: responde gemini-2.5-flash-lite al primer intento, sin reintentos del SDK', async () => {
     generateObjectMock.mockRejectedValueOnce(highDemand()).mockResolvedValueOnce({ object: intent });

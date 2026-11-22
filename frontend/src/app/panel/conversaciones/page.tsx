@@ -14,6 +14,7 @@ const MAX_MESSAGE_LENGTH = 4096;
 const SYSTEM_LABELS: Record<string, string> = {
   '[SYSTEM_BOT_PAUSED]': '👤 Bot pausado: el equipo atiende este chat',
   '[SYSTEM_BOT_RESUMED]': '🤖 Bot reactivado',
+  '[SYSTEM_OPT_OUT]': '🚫 Baja registrada: la persona pidió no recibir más mensajes automáticos',
 };
 const systemLabel = (message: string | null) => SYSTEM_LABELS[message ?? ''] ?? `⚙️ ${message ?? ''}`;
 

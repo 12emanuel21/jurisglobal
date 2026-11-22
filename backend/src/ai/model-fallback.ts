@@ -62,7 +62,22 @@ export function isOverloadError(error: unknown, depth = 0): boolean {
   return isOverloadError(e.lastError, depth + 1) || isOverloadError(e.cause, depth + 1);
 }
 
-/** Error final cuando todos los modelos de la cadena estaban saturados */
+const NOT_FOUND_TEXT = /not found|is not supported for|no longer available|has been deprecated|unknown model/i;
+
+/**
+ * ¿El modelo no existe o fue retirado (404)? Google retira modelos con frecuencia: con un
+ * GEMINI_MODEL mal escrito o descontinuado, el siguiente de la cadena sí puede responder.
+ */
+export function isModelNotFoundError(error: unknown, depth = 0): boolean {
+  if (!error || typeof error !== 'object' || depth > 3) return false;
+  const e = error as { message?: string; statusCode?: number; status?: number; lastError?: unknown; cause?: unknown };
+  const status = e.statusCode ?? e.status;
+  if (status === 404) return true;
+  if (typeof status !== 'number' && typeof e.message === 'string' && NOT_FOUND_TEXT.test(e.message)) return true;
+  return isModelNotFoundError(e.lastError, depth + 1) || isModelNotFoundError(e.cause, depth + 1);
+}
+
+/** Error final cuando ningún modelo de la cadena respondió (saturados, lentos o inexistentes) */
 export class AllModelsUnavailableError extends Error {
   constructor(
     readonly models: string[],
@@ -92,7 +107,7 @@ export async function runWithModelFallback<T>(
     try {
       return await call(model, AbortSignal.timeout(options.timeoutMs));
     } catch (error) {
-      if (!isOverloadError(error)) throw error;
+      if (!isOverloadError(error) && !isModelNotFoundError(error)) throw error;
       lastError = error;
       const next = models[index + 1];
       const reason = error instanceof Error ? error.message : String(error);
