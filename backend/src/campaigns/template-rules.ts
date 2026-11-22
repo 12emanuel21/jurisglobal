@@ -85,23 +85,33 @@ export function hasOptOutOption(footer: string | null | undefined, buttons: Temp
   return buttons.some((b) => b.role === 'OPT_OUT') || footerHasOptOut(footer);
 }
 
-/** Motivos por los que una plantilla no se puede usar para lanzar (vacío = apta) */
+/**
+ * Motivos por los que una plantilla no se puede usar para lanzar (vacío = apta). La falta de opción
+ * de baja en la plantilla NO bloquea (ver templateWarnings): el chatbot procesa STOP/BAJA en
+ * cualquier respuesta y Meta ofrece el bloqueo nativo del marketing.
+ */
 export function templateLaunchProblems(t: {
   status: string;
-  hasOptOut: boolean;
   purpose: 'MARKETING' | 'OPT_IN';
   buttons: TemplateButton[];
 }): string[] {
   const problems: string[] = [];
   if (t.status !== 'APPROVED') problems.push('La plantilla no está aprobada en Meta');
-  if (!t.hasOptOut) problems.push('La plantilla no tiene opción de baja (botón o pie con STOP/baja)');
   if (t.purpose === 'OPT_IN' && !t.buttons.some((b) => b.role === 'OPT_IN_ACCEPT'))
     problems.push('La plantilla de confirmación necesita un botón para aceptar (rol «Acepta»)');
   return problems;
 }
 
+export const NO_OPT_OUT_WARNING =
+  'Sin botón ni pie de baja: se recomienda agregar «Responde STOP para no recibir más». Igual se puede enviar: el chatbot atiende STOP/BAJA en cualquier respuesta y Meta permite bloquear el marketing';
+
+/** Avisos informativos (no bloquean el envío) */
+export function templateWarnings(t: { hasOptOut: boolean }): string[] {
+  return t.hasOptOut ? [] : [NO_OPT_OUT_WARNING];
+}
+
 /** Meta rechaza parámetros con saltos de línea, tabulaciones o más de 4 espacios seguidos */
-const cleanParam = (value: string) =>
+export const cleanParam = (value: string) =>
   value
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/ {2,}/g, ' ')
@@ -180,4 +190,14 @@ export function parseGraphTemplate(t: GraphTemplate) {
     variableCount,
     hasOptOut: hasOptOutOption(footer, buttons),
   };
+}
+
+/** Encabezado de texto de la plantilla (componente HEADER con formato TEXT), si lo tiene */
+export function headerTextOf(components: unknown): string | null {
+  if (!Array.isArray(components)) return null;
+  const header = (components as Array<{ type?: string; format?: string; text?: string }>).find(
+    (c) => c?.type === 'HEADER',
+  );
+  if (!header || (header.format && header.format !== 'TEXT')) return null;
+  return typeof header.text === 'string' && header.text.trim() ? header.text : null;
 }

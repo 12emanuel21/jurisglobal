@@ -16,7 +16,9 @@ import {
   countVariables,
   hasOptOutOption,
   parseGraphTemplate,
+  headerTextOf,
   templateLaunchProblems,
+  templateWarnings,
   type GraphTemplate,
   type TemplateButton,
 } from '../template-rules';
@@ -37,6 +39,7 @@ export function serializeTemplate(t: MessageTemplate, campaigns = 0) {
     purpose: t.purpose,
     status: t.status,
     bodyText: t.bodyText,
+    headerText: headerTextOf(t.components),
     footerText: t.footerText,
     buttons,
     variableCount: t.variableCount,
@@ -45,7 +48,8 @@ export function serializeTemplate(t: MessageTemplate, campaigns = 0) {
     lastSyncedAt: t.lastSyncedAt,
     updatedAt: t.updatedAt,
     campaigns,
-    problems: templateLaunchProblems({ status: t.status, hasOptOut: t.hasOptOut, purpose: t.purpose, buttons }),
+    problems: templateLaunchProblems({ status: t.status, purpose: t.purpose, buttons }),
+    warnings: templateWarnings(t),
   };
 }
 

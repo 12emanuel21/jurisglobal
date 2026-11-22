@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, Rocket, Search, X } from 'lucide-react';
+import { AlertTriangle, Info, Loader2, Rocket, Search, X } from 'lucide-react';
 import { btnGhost, btnPrimary, btnSecondary, card, errorText, input, label, muted } from '@/components/panel/ui';
 import { useSudoMode } from '@/context/SudoContext';
 import { apiErrorMessage } from '@/lib/api';
@@ -9,12 +9,19 @@ import {
   KIND_LABEL,
   bogotaLocalToIso,
   masivosApi,
+  resolveVariables,
   type Audience,
   type CampaignPreview,
+  type ImportPreview,
   type MassContact,
   type MassTemplate,
   type VariableRule,
 } from '@/lib/masivos';
+import { ContactImporter } from './ContactImporter';
+import { WhatsAppPreview } from './WhatsAppPreview';
+
+const EXAMPLE_NAME = 'Ana María Pérez';
+type AudienceChoice = Audience['type'] | 'file';
 
 interface Props {
   onClose: () => void;
@@ -31,7 +38,10 @@ export function CampaignForm({ onClose, onCreated }: Props) {
   const [sources, setSources] = useState<Array<{ source: string; count: number }>>([]);
   const [name, setName] = useState('');
   const [templateId, setTemplateId] = useState('');
-  const [audienceType, setAudienceType] = useState<Audience['type']>('all');
+  const [audienceType, setAudienceType] = useState<AudienceChoice>('all');
+  /** Archivo cargado desde la campaña: su primera fila alimenta el teléfono y sus orígenes, la audiencia */
+  const [filePreview, setFilePreview] = useState<ImportPreview | null>(null);
+  const [fileSources, setFileSources] = useState<string[]>([]);
   const [chosenSources, setChosenSources] = useState<string[]>([]);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [mapping, setMapping] = useState<Record<string, VariableRule>>({});
@@ -60,10 +70,12 @@ export function CampaignForm({ onClose, onCreated }: Props) {
     () =>
       audienceType === 'source'
         ? { type: 'source', sources: chosenSources }
-        : audienceType === 'selection'
-          ? { type: 'selection', contactIds: Object.keys(selected) }
-          : { type: 'all' },
-    [audienceType, chosenSources, selected],
+        : audienceType === 'file'
+          ? { type: 'source', sources: fileSources }
+          : audienceType === 'selection'
+            ? { type: 'selection', contactIds: Object.keys(selected) }
+            : { type: 'all' },
+    [audienceType, chosenSources, fileSources, selected],
   );
   const variableMapping = useMemo(() => {
     const out: Record<string, VariableRule> = {};
@@ -72,7 +84,12 @@ export function CampaignForm({ onClose, onCreated }: Props) {
   }, [mapping, template]);
 
   const audienceReady =
-    audienceType === 'all' || (audienceType === 'source' ? chosenSources.length > 0 : Object.keys(selected).length > 0);
+    audienceType === 'all' ||
+    (audienceType === 'source'
+      ? chosenSources.length > 0
+      : audienceType === 'file'
+        ? fileSources.length > 0
+        : Object.keys(selected).length > 0);
   const previewKey = JSON.stringify({ templateId, audience, variableMapping });
   const canPreview = Boolean(template) && audienceReady;
 
@@ -93,6 +110,16 @@ export function CampaignForm({ onClose, onCreated }: Props) {
   }, [canPreview, previewKey, templateId, audience, variableMapping]);
 
   const current = canPreview && preview?.key === previewKey ? preview : null;
+
+  // Teléfono de vista previa: primera fila del archivo cargado › primer contacto que la recibiría › ejemplo
+  const fileName = audienceType === 'file' ? filePreview?.firstContact : null;
+  const sampleName = fileName ? fileName.name : current?.data?.sampleContact ? current.data.sampleContact.name : EXAMPLE_NAME;
+  const sampleCaption = fileName
+    ? `Con la primera fila del archivo (${fileName.name ?? 'sin nombre'})`
+    : current?.data?.sampleContact
+      ? `Con el primer contacto que la recibirá (${current.data.sampleContact.name ?? 'sin nombre'})`
+      : `Con un nombre de ejemplo (${EXAMPLE_NAME})`;
+  const sampleParams = template ? resolveVariables(variableMapping, template.variableCount, sampleName) : [];
   const scheduledIso = when === 'later' && scheduledLocal ? bogotaLocalToIso(scheduledLocal) : undefined;
   const ready = Boolean(name.trim().length >= 3 && current?.data && current.data.recipients > 0 && (when === 'now' || scheduledIso));
 
@@ -147,7 +174,7 @@ export function CampaignForm({ onClose, onCreated }: Props) {
               ))}
             </select>
             {templates && usable.length === 0 && (
-              <p className={`mt-1 text-xs ${muted}`}>No hay plantillas listas: regístralas en la pestaña Plantillas (aprobadas y con opción de baja).</p>
+              <p className={`mt-1 text-xs ${muted}`}>No hay plantillas listas: regístralas en la pestaña Plantillas (aprobadas en Meta).</p>
             )}
             {template?.purpose === 'OPT_IN' && (
               <p className={`mt-1 text-xs ${muted}`}>Confirmación de autorización: solo se envía a contactos no verificados.</p>
@@ -190,6 +217,7 @@ export function CampaignForm({ onClose, onCreated }: Props) {
                   ['all', template?.purpose === 'OPT_IN' ? 'Todos los no verificados' : 'Todos los verificados'],
                   ['source', 'Por origen'],
                   ['selection', 'Selección'],
+                  ['file', 'Desde un archivo (Excel/CSV)'],
                 ] as const
               ).map(([value, text]) => (
                 <label key={value} className="tap inline-flex items-center gap-2 text-sm">
@@ -216,6 +244,26 @@ export function CampaignForm({ onClose, onCreated }: Props) {
               </div>
             )}
             {audienceType === 'selection' && <ContactPicker selected={selected} onChange={setSelected} />}
+            {audienceType === 'file' && (
+              <div className="mt-2 space-y-2">
+                <ContactImporter
+                  title="Cargar la audiencia desde un archivo"
+                  onPreview={setFilePreview}
+                  onImported={(_summary, p) => {
+                    setFileSources(p?.sources ?? []);
+                    masivosApi
+                      .sources()
+                      .then(setSources)
+                      .catch(() => undefined);
+                  }}
+                />
+                {fileSources.length > 0 && (
+                  <p className={`text-xs ${muted}`} data-testid="file-audience">
+                    Audiencia: contactos con Origen {fileSources.map((x) => `«${x}»`).join(', ')} (se excluyen bajas y, en marketing, los no verificados).
+                  </p>
+                )}
+              </div>
+            )}
           </fieldset>
 
           <fieldset>
@@ -262,6 +310,18 @@ export function CampaignForm({ onClose, onCreated }: Props) {
             </p>
           )}
           {current?.data && <PreviewSummary preview={current.data} />}
+          {template ? (
+            <WhatsAppPreview
+              header={template.headerText}
+              body={template.bodyText}
+              footer={template.footerText}
+              buttons={template.buttons.map((b) => b.text)}
+              params={sampleParams}
+              caption={sampleCaption}
+            />
+          ) : (
+            <p className={`text-xs ${muted}`}>Al elegir la plantilla verás aquí cómo le llega el mensaje al contacto.</p>
+          )}
         </aside>
       </div>
 
@@ -326,22 +386,11 @@ export function PreviewSummary({ preview }: { preview: CampaignPreview }) {
           su cupo (día o semana).
         </p>
       )}
-      <div>
-        <p className="mb-1 font-semibold">Así se verá:</p>
-        <div className="rounded-xl bg-[#e7f6e0] p-3 text-gray-900 shadow-sm dark:bg-slate-900 dark:text-slate-100">
-          <p className="whitespace-pre-wrap">{preview.sample.body}</p>
-          {preview.sample.footer && <p className="mt-1 text-xs text-gray-600">{preview.sample.footer}</p>}
-        </div>
-        {preview.sample.buttons.length > 0 && (
-          <div className="mt-1 grid gap-1">
-            {preview.sample.buttons.map((b) => (
-              <span key={b} className="rounded-lg bg-white py-1 text-center text-xs font-semibold text-sky-700 shadow-sm dark:bg-slate-900">
-                {b}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      {(preview.warnings ?? []).map((w) => (
+        <p key={w} className="flex items-start gap-2 text-xs text-[#1e3a8a] dark:text-[#bfdbfe]" data-testid="preview-warning">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> Aviso (no bloquea): {w}
+        </p>
+      ))}
     </div>
   );
 }

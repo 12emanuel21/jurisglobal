@@ -6,7 +6,9 @@ import {
   parseGraphTemplate,
   renderBody,
   resolveVariables,
+  headerTextOf,
   templateLaunchProblems,
+  templateWarnings,
 } from './template-rules';
 
 describe('Reglas de plantillas de Meta', () => {
@@ -33,11 +35,14 @@ describe('Reglas de plantillas de Meta', () => {
     expect(footerHasOptOut(null)).toBe(false);
   });
 
-  it('no se lanza sin aprobación, sin opción de baja o (opt-in) sin botón de aceptar', () => {
-    const ok = { status: 'APPROVED', hasOptOut: true, purpose: 'MARKETING' as const, buttons: [] };
+  it('no se lanza sin aprobación o (opt-in) sin botón de aceptar; la falta de baja solo es un aviso', () => {
+    const ok = { status: 'APPROVED', purpose: 'MARKETING' as const, buttons: [] };
     expect(templateLaunchProblems(ok)).toEqual([]);
     expect(templateLaunchProblems({ ...ok, status: 'PAUSED' })).toHaveLength(1);
-    expect(templateLaunchProblems({ ...ok, hasOptOut: false })[0]).toMatch(/opción de baja/);
+    // Sin pie ni botón de baja: aprobada en Meta = apta; queda un aviso informativo
+    expect(templateLaunchProblems({ ...ok, status: 'APPROVED' })).toEqual([]);
+    expect(templateWarnings({ hasOptOut: false })[0]).toMatch(/STOP/);
+    expect(templateWarnings({ hasOptOut: true })).toEqual([]);
     expect(templateLaunchProblems({ ...ok, purpose: 'OPT_IN' })[0]).toMatch(/botón para aceptar/);
     expect(
       templateLaunchProblems({ ...ok, purpose: 'OPT_IN', buttons: [{ text: 'Sí, acepto', role: 'OPT_IN_ACCEPT' }] }),
@@ -89,5 +94,17 @@ describe('Reglas de plantillas de Meta', () => {
       ],
       hasOptOut: true,
     });
+  });
+
+  it('encabezado de texto desde los componentes de Meta', () => {
+    expect(
+      headerTextOf([
+        { type: 'HEADER', format: 'TEXT', text: 'JurisGlobal' },
+        { type: 'BODY', text: 'x' },
+      ]),
+    ).toBe('JurisGlobal');
+    expect(headerTextOf([{ type: 'HEADER', format: 'IMAGE' }])).toBeNull();
+    expect(headerTextOf([{ type: 'BODY', text: 'x' }])).toBeNull();
+    expect(headerTextOf(null)).toBeNull();
   });
 });

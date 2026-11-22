@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { btnGhost, btnPrimary, btnSecondary, card, errorText, input, label, muted } from '@/components/panel/ui';
 import { SaveFeedback, type Feedback } from '@/components/settings/SaveFeedback';
 import {
@@ -89,7 +89,7 @@ export function TemplatesTab() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className={`max-w-prose text-sm ${muted}`}>
           Las plantillas se crean y aprueban en el administrador de WhatsApp de Meta. Aquí se registran sus datos (o se sincronizan) para usarlas en
-          campañas. Toda plantilla necesita una opción de baja: un botón con rol «Baja» o un pie que diga cómo darse de baja (STOP).
+          campañas. Se recomienda una opción de baja (un botón con rol «Baja» o un pie como «Responde STOP para no recibir más»); si no la tiene, solo verás un aviso: el chatbot atiende STOP/BAJA en cualquier respuesta y Meta permite bloquear el marketing.
         </p>
         <div className="flex gap-2">
           <button
@@ -158,9 +158,18 @@ export function TemplatesTab() {
               </p>
             ) : (
               <p className="mt-3 flex items-center gap-2 text-xs text-green-800 dark:text-green-300">
-                <CheckCircle2 className="h-4 w-4" /> Lista para campañas
+                <CheckCircle2 className="h-4 w-4" /> Lista para campañas y envíos de prueba
               </p>
             )}
+            {(t.warnings ?? []).map((w) => (
+              <p
+                key={w}
+                data-testid="template-warning"
+                className="mt-2 flex items-start gap-2 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] p-2 text-xs text-[#1e3a8a] dark:border-[#1e3a8a] dark:bg-[#172554]/60 dark:text-[#bfdbfe]"
+              >
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> <span>Aviso (no bloquea): {w}</span>
+              </p>
+            ))}
           </li>
         ))}
       </ul>

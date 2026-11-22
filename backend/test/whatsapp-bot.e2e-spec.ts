@@ -37,6 +37,9 @@ interface Sent {
  * Integración del chatbot (Etapa 4): webhooks firmados con HMAC contra POST /webhooks/whatsapp,
  * PostgreSQL real (base _test), LeadsService real y Meta, Gemini y SMTP simulados.
  */
+// URL pública configurada (PUBLIC_BASE_URL): localhost en desarrollo, el dominio real en producción
+const site = () => loadEnv().PUBLIC_BASE_URL.replace(/\/+$/, '');
+
 describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', () => {
   let app: NestExpressApplication;
   let prisma: PrismaClient;
@@ -194,7 +197,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     expect(last().body).toContain('JurisGlobal');
     expect(last().body).toContain('llamada o correo');
     expect(last().body).toContain('¿Nos autorizas?');
-    expect(last().body).toContain('Aviso de Privacidad: http://localhost:8088/legal/privacidad');
+    expect(last().body).toContain(`Aviso de Privacidad: ${site()}/legal/privacidad`);
     expect(last().options).toEqual([
       { id: 'consent:yes', title: 'Acepto' },
       { id: 'consent:no', title: 'No acepto' },
@@ -280,7 +283,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
 
     expect(last().kind).toBe('text');
     expect(last().body).toContain('Sin tu autorización no podemos registrar tus datos');
-    expect(last().body).toContain('Web: http://localhost:8088');
+    expect(last().body).toContain(`Web: ${site()}`);
     expect(last().body).toContain('Correo: contacto@jurisglobal.test');
     expect(last().body).toContain('Teléfono: 300 123 4567');
     expect(await prisma.lead.count()).toBe(0);

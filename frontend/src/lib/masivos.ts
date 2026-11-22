@@ -45,6 +45,33 @@ export interface ImportSummary {
   unverified: number;
 }
 
+/** Vista previa del archivo antes de importar (POST /admin/contacts/import/preview; no guarda nada) */
+export interface ImportPreview {
+  fileName: string;
+  /** Problema que impide importar (columnas faltantes, formato…); null = importable */
+  error: string | null;
+  headers: string[];
+  columns: Partial<Record<'name' | 'phone' | 'email' | 'tags' | 'source' | 'consent', string>>;
+  firstRow: Record<string, string> | null;
+  firstContact: {
+    row: number;
+    phone: string;
+    name: string | null;
+    email: string | null;
+    source: string;
+    consent: 'DOCUMENTED' | 'UNVERIFIED';
+    tags: string[];
+  } | null;
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  verified: number;
+  unverified: number;
+  sources: string[];
+  errors: string[];
+}
+
 export const CONTACT_STATUS_LABEL: Record<ContactStatus, string> = {
   verified: 'Verificado',
   unverified: 'No verificado',
@@ -75,6 +102,8 @@ export interface MassTemplate {
   category: 'MARKETING' | 'UTILITY' | string;
   purpose: CampaignKind;
   status: string;
+  /** Encabezado de texto (plantillas sincronizadas desde Meta con HEADER de texto) */
+  headerText?: string | null;
   bodyText: string;
   footerText: string | null;
   buttons: TemplateButton[];
@@ -84,7 +113,10 @@ export interface MassTemplate {
   lastSyncedAt: string | null;
   updatedAt: string;
   campaigns: number;
+  /** Impiden usarla (no aprobada; opt-in sin botón de aceptar) */
   problems: string[];
+  /** Avisos informativos que NO bloquean (p. ej. sin pie/botón de baja) */
+  warnings?: string[];
 }
 
 export interface TemplateInput {
@@ -108,6 +140,23 @@ export const KIND_LABEL: Record<CampaignKind, string> = {
   MARKETING: 'Marketing (solo verificados)',
   OPT_IN: 'Confirmación de autorización (opt-in)',
 };
+
+/** Reemplaza {{n}} por los valores (los que falten quedan como {{n}}) */
+export function renderTemplate(body: string, params: Array<string | null | undefined>): string {
+  return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (match, n: string) => params[Number(n) - 1]?.trim() || match);
+}
+
+/** Igual que el backend (template-rules.ts): valores de las variables para un contacto */
+export function resolveVariables(mapping: Record<string, VariableRule>, count: number, name: string | null | undefined): string[] {
+  const fullName = name?.trim() ?? '';
+  const firstName = fullName.split(/\s+/)[0] ?? '';
+  return Array.from({ length: count }, (_, i) => {
+    const rule = mapping[String(i + 1)] ?? { type: 'firstName' };
+    if (rule.type === 'literal') return rule.value?.trim() ?? '';
+    const value = rule.type === 'fullName' ? fullName : firstName;
+    return value || rule.value?.trim() || 'cliente';
+  });
+}
 
 /** {{1}}, {{2}}… usados en el cuerpo */
 export function templateVariables(body: string): number[] {
@@ -188,7 +237,27 @@ export interface CampaignPreview {
   excluded: { optedOut: number; unverified: number; alreadyVerified: number; total: number };
   frequencyCapped: number;
   problems: string[];
-  sample: { body: string; footer: string | null; buttons: string[] };
+  warnings?: string[];
+  /** Primer contacto que la recibiría (para armar la vista previa con datos reales) */
+  sampleContact?: { name: string | null };
+  sample: { header?: string | null; body: string; footer: string | null; buttons: string[] };
+}
+
+export interface TestSendInput {
+  templateId: string;
+  phone: string;
+  variables: string[];
+  skipWindow: boolean;
+}
+
+export interface TestSendResult {
+  status: 'SENT' | 'SIMULATED';
+  waMessageId: string;
+  phone: string;
+  body: string;
+  insideWindow: boolean;
+  windowBypassed: boolean;
+  conversationId: string | null;
 }
 
 export interface CampaignInput {
@@ -286,6 +355,30 @@ export const masivosApi = {
     return (await res.json()) as ImportSummary;
   },
 
+  async previewImport(file: File): Promise<ImportPreview> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch('/admin/contacts/import/preview', { method: 'POST', body: form });
+    if (!res.ok) {
+      const { message, data } = await apiErrorMessage(res, 'No se pudo leer el archivo');
+      throw new ApiError(message, res.status, data);
+    }
+    return (await res.json()) as ImportPreview;
+  },
+  /** Descarga la plantilla Excel (.xlsx) con las columnas exactas del importador */
+  async downloadImportTemplate(): Promise<void> {
+    const res = await apiFetch('/admin/contacts/import-template');
+    if (!res.ok) throw new ApiError((await apiErrorMessage(res, 'No se pudo descargar la plantilla')).message, res.status);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = IMPORT_TEMPLATE_FILENAME;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+
   templates: () => apiJson<{ items: MassTemplate[]; canSync: boolean }>('/admin/templates'),
   createTemplate: (body: TemplateInput) => apiJson<MassTemplate>('/admin/templates', json(body)),
   updateTemplate: (id: string, body: TemplateInput) => apiJson<MassTemplate>(`/admin/templates/${id}`, json(body, 'PATCH')),
@@ -303,11 +396,7 @@ export const masivosApi = {
   cancel: (id: string) => apiJson<CampaignDetail>(`/admin/campaigns/${id}/cancel`, { method: 'POST' }),
 };
 
-/** Plantilla CSV descargable para el importador (BOM para Excel en Colombia, separador ;) */
-export const IMPORT_TEMPLATE_CSV =
-  '﻿Nombre;Teléfono;Correo;Etiquetas;Origen;Autorización\n' +
-  'Ana María Pérez;300 123 4567;ana@correo.co;tránsito;Consultoría (nombre);Sí\n' +
-  'Luis Gómez;+57 310 555 0000;;;Feria (nombre);No\n';
+export const IMPORT_TEMPLATE_FILENAME = 'plantilla-contactos-jurisglobal.xlsx';
 
 /** "2026-11-30T07:00" (hora de Colombia) -> ISO UTC. Colombia es UTC-5 todo el año (sin horario de verano) */
 export const bogotaLocalToIso = (local: string) => new Date(`${local}:00-05:00`).toISOString();

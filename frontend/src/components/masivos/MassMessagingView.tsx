@@ -1,16 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText, Megaphone, Users } from 'lucide-react';
+import { FileText, Megaphone, Send, Users } from 'lucide-react';
 import { heading, muted } from '@/components/panel/ui';
 import { CampaignsTab } from './CampaignsTab';
 import { ContactsTab } from './ContactsTab';
 import { TemplatesTab } from './TemplatesTab';
+import { TestSendTab } from './TestSendTab';
 
 const TABS = [
   { id: 'campanas', label: 'Campañas', icon: Megaphone },
   { id: 'contactos', label: 'Contactos', icon: Users },
   { id: 'plantillas', label: 'Plantillas', icon: FileText },
+  { id: 'prueba', label: 'Envío de prueba', icon: Send },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -51,6 +53,7 @@ export function MassMessagingView() {
         {tab === 'campanas' && <CampaignsTab />}
         {tab === 'contactos' && <ContactsTab />}
         {tab === 'plantillas' && <TemplatesTab />}
+        {tab === 'prueba' && <TestSendTab />}
       </div>
     </div>
   );

@@ -35,18 +35,28 @@ export interface ParsedContactSpreadsheet {
   /** Filas descartadas por datos inválidos y por teléfono repetido dentro del archivo (totales reales) */
   invalidRows: number;
   duplicateRows: number;
+  /** Cabeceras tal como vienen en el archivo (vista previa antes de importar) */
+  headers: string[];
+  /** Columna reconocida → cabecera original del archivo */
+  columns: Partial<Record<Column, string>>;
+  /** Primera fila de datos no vacía: cabecera → valor (vista previa) */
+  firstRow: Record<string, string> | null;
 }
 
-const fatal = (message: string): ParsedContactSpreadsheet => ({
+export type Column = 'name' | 'phone' | 'email' | 'tags' | 'source' | 'consent';
+
+const fatal = (message: string, extra: Partial<ParsedContactSpreadsheet> = {}): ParsedContactSpreadsheet => ({
   rows: [],
   errors: [message],
   warnings: [],
   fatal: true,
   invalidRows: 0,
   duplicateRows: 0,
+  headers: [],
+  columns: {},
+  firstRow: null,
+  ...extra,
 });
-
-type Column = 'name' | 'phone' | 'email' | 'tags' | 'source' | 'consent';
 
 const HEADER_ALIASES: Record<string, Column> = {
   nombre: 'name',
@@ -125,19 +135,30 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
   if (matrix.length < 2) return fatal('El archivo está vacío: se esperaba una cabecera y al menos un contacto');
 
   const columnIndex = new Map<Column, number>();
-  (matrix[0] ?? []).forEach((header, index) => {
-    const column = HEADER_ALIASES[normalizeHeader(cellText(header).replace(/^\uFEFF/, ''))];
-    if (column && !columnIndex.has(column)) columnIndex.set(column, index);
+  const headers = (matrix[0] ?? []).map((h) => cellText(h).replace(/^\uFEFF/, ''));
+  const columns: Partial<Record<Column, string>> = {};
+  headers.forEach((header, index) => {
+    const column = HEADER_ALIASES[normalizeHeader(header)];
+    if (column && !columnIndex.has(column)) {
+      columnIndex.set(column, index);
+      columns[column] = header;
+    }
   });
+  const dataRows = matrix.slice(1);
+  const firstCells = dataRows.find((cells) => cells.some((c) => cellText(c) !== ''));
+  const firstRow = firstCells
+    ? Object.fromEntries(headers.map((h, i) => [h || `Columna ${i + 1}`, cellText(firstCells[i])]))
+    : null;
+  const preview = { headers, columns, firstRow };
   const missing = REQUIRED.filter(([c]) => !columnIndex.has(c)).map(([, label]) => label);
   if (missing.length) {
     return fatal(
       `Faltan columnas obligatorias: ${missing.join(', ')}. Columnas esperadas: Nombre, Teléfono, Correo, Etiquetas, Origen, Autorización`,
+      preview,
     );
   }
-  const dataRows = matrix.slice(1);
   if (dataRows.length > MAX_CONTACT_ROWS) {
-    return fatal(`El archivo supera el máximo de ${MAX_CONTACT_ROWS} contactos por importación`);
+    return fatal(`El archivo supera el máximo de ${MAX_CONTACT_ROWS} contactos por importación`, preview);
   }
 
   const get = (cells: unknown[], c: Column) => {
@@ -192,8 +213,9 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
     });
   });
 
-  if (!errors.length && !rows.length) return fatal('El archivo no contiene contactos para importar');
+  if (!errors.length && !rows.length) return fatal('El archivo no contiene contactos para importar', preview);
   return {
+    ...preview,
     rows,
     errors: capped(errors),
     warnings: capped([...duplicates, ...warnings]),
@@ -201,4 +223,48 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
     invalidRows: errors.length,
     duplicateRows: duplicates.length,
   };
+}
+
+/** Columnas exactas de la plantilla descargable (las reconoce el importador) */
+export const CONTACT_TEMPLATE_HEADERS = [
+  'Telefono',
+  'Nombre',
+  'Origen',
+  'Autorizacion',
+  'Correo',
+  'Etiquetas',
+] as const;
+
+/**
+ * Plantilla Excel lista para llenar: hoja «Contactos» (la que lee el importador, con 2 filas de
+ * ejemplo y el teléfono como texto para que Excel no lo convierta en número) y hoja «Instrucciones».
+ */
+export function buildContactTemplateXlsx(): Buffer {
+  const rows = [
+    [...CONTACT_TEMPLATE_HEADERS],
+    ['300 123 4567', 'Ana María Pérez', 'Consultoría Andina', 'Sí', 'ana@correo.co', 'tránsito'],
+    ['+57 310 555 0000', 'Luis Gómez', 'Feria Barranquilla 2026', 'No', '', 'cartera; deudas'],
+  ];
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  for (let r = 1; r < rows.length; r++) {
+    const ref = XLSX.utils.encode_cell({ r, c: 0 });
+    sheet[ref] = { t: 's', v: rows[r][0], z: '@' };
+  }
+  sheet['!cols'] = [{ wch: 18 }, { wch: 24 }, { wch: 26 }, { wch: 14 }, { wch: 26 }, { wch: 20 }];
+  const help = XLSX.utils.aoa_to_sheet([
+    ['Columna', 'Obligatoria', 'Qué escribir'],
+    ['Telefono', 'Sí', 'Celular colombiano: 300 123 4567, 3001234567 o +57 300 123 4567'],
+    ['Nombre', 'No', 'Nombre de la persona; el primer nombre se usa en la variable {{1}} de las plantillas'],
+    ['Origen', 'Sí', 'De dónde viene el contacto (consultoría, feria, referido…): sirve para elegir la audiencia'],
+    ['Autorizacion', 'Sí', '«Sí» solo si hay soporte documental de que autorizó a JurisGlobal; «No» en otro caso'],
+    ['Correo', 'No', 'Correo electrónico'],
+    ['Etiquetas', 'No', 'Separadas por coma o punto y coma'],
+    [],
+    ['Las filas de ejemplo se pueden borrar. Máximo 5.000 contactos por archivo.'],
+  ]);
+  help['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 90 }];
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, 'Contactos');
+  XLSX.utils.book_append_sheet(book, help, 'Instrucciones');
+  return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }

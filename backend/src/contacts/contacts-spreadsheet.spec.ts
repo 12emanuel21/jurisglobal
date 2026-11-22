@@ -1,5 +1,10 @@
 import * as XLSX from 'xlsx';
-import { parseConsent, parseContactSpreadsheet } from './contacts-spreadsheet';
+import {
+  CONTACT_TEMPLATE_HEADERS,
+  buildContactTemplateXlsx,
+  parseConsent,
+  parseContactSpreadsheet,
+} from './contacts-spreadsheet';
 
 const csv = (text: string) => Buffer.from(text, 'utf8');
 
@@ -89,5 +94,40 @@ describe('Importador de contactos (xlsx/csv)', () => {
     expect(parseConsent('SÍ')).toBe('DOCUMENTED');
     expect(parseConsent('pendiente')).toBe('UNVERIFIED');
     expect(parseConsent('')).toBe('UNVERIFIED');
+  });
+
+  it('vista previa: cabeceras originales, columnas reconocidas y primera fila con datos', () => {
+    const parsed = parseContactSpreadsheet(
+      csv('Celular;Nombre completo;Fuente;Autorización\n;;;\n300 123 4567;Ana Pérez;Feria;Sí\n'),
+      'a.csv',
+    );
+    expect(parsed.headers).toEqual(['Celular', 'Nombre completo', 'Fuente', 'Autorización']);
+    expect(parsed.columns).toEqual({
+      phone: 'Celular',
+      name: 'Nombre completo',
+      source: 'Fuente',
+      consent: 'Autorización',
+    });
+    expect(parsed.firstRow).toEqual({
+      Celular: '300 123 4567',
+      'Nombre completo': 'Ana Pérez',
+      Fuente: 'Feria',
+      Autorización: 'Sí',
+    });
+    const broken = parseContactSpreadsheet(csv('Nombre,Teléfono\nAna,3001234567\n'), 'b.csv');
+    expect(broken.fatal).toBe(true);
+    expect(broken.headers).toEqual(['Nombre', 'Teléfono']);
+    expect(broken.firstRow).toEqual({ Nombre: 'Ana', Teléfono: '3001234567' });
+  });
+
+  it('la plantilla Excel descargable se importa sin errores (teléfono como texto)', () => {
+    const parsed = parseContactSpreadsheet(buildContactTemplateXlsx(), 'plantilla.xlsx');
+    expect(parsed.fatal).toBe(false);
+    expect(parsed.headers).toEqual([...CONTACT_TEMPLATE_HEADERS]);
+    expect(parsed.rows.map((r) => [r.phone, r.consent])).toEqual([
+      ['573001234567', 'DOCUMENTED'],
+      ['573105550000', 'UNVERIFIED'],
+    ]);
+    expect(parsed.errors).toEqual([]);
   });
 });

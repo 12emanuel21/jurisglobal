@@ -126,3 +126,19 @@ export class RecipientsQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 25;
 }
+
+// ───────────── Envío de prueba / unitario ─────────────
+
+export class TestSendDto {
+  @IsUUID() templateId!: string;
+  @Transform(trim) @IsString() @MinLength(7, { message: 'Escribe el celular' }) @MaxLength(30) phone!: string;
+  /** Valores de {{1}}, {{2}}… en orden */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  variables?: string[];
+  /** Solo pruebas: omitir el horario Ley 2300 (queda en la bitácora) */
+  @IsOptional() @IsBoolean() skipWindow?: boolean;
+}

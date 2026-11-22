@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bodyOf, callsTo, routeFetch } from '@/test/panel-fixtures';
-import type { CampaignDetail as Detail, CampaignPreview, ImportSummary, MassTemplate } from '@/lib/masivos';
+import type { CampaignDetail as Detail, CampaignPreview, ImportPreview, ImportSummary, MassTemplate } from '@/lib/masivos';
 import { ContactImporter } from './ContactImporter';
 import { CampaignForm } from './CampaignForm';
 import { CampaignDetail } from './CampaignDetail';
@@ -36,6 +36,24 @@ const TEMPLATE: MassTemplate = {
   updatedAt: '2026-11-22T15:00:00.000Z',
   campaigns: 0,
   problems: [],
+  warnings: [],
+};
+
+const FILE_PREVIEW: ImportPreview = {
+  fileName: 'base.csv',
+  error: null,
+  headers: ['Telefono', 'Nombre', 'Origen', 'Autorizacion'],
+  columns: { phone: 'Telefono', name: 'Nombre', source: 'Origen', consent: 'Autorizacion' },
+  firstRow: { Telefono: '300 123 4567', Nombre: 'Marta Gómez', Origen: 'Feria', Autorizacion: 'Sí' },
+  firstContact: { row: 2, phone: '+57 300 123 4567', name: 'Marta Gómez', email: null, source: 'Feria', consent: 'DOCUMENTED', tags: [] },
+  totalRows: 8,
+  validRows: 5,
+  invalidRows: 2,
+  duplicateRows: 1,
+  verified: 4,
+  unverified: 1,
+  sources: ['Feria'],
+  errors: ['Fila 5: el Teléfono "123" no es un celular colombiano válido'],
 };
 
 const PREVIEW: CampaignPreview = {
@@ -45,6 +63,8 @@ const PREVIEW: CampaignPreview = {
   excluded: { optedOut: 20, unverified: 800, alreadyVerified: 0, total: 820 },
   frequencyCapped: 35,
   problems: [],
+  warnings: [],
+  sampleContact: { name: 'Ana María Pérez' },
   sample: { body: 'Hola Ana, en JurisGlobal te acompañamos con tu caso.', footer: 'Responde STOP para no recibir más', buttons: ['No recibir más'] },
 };
 
@@ -85,7 +105,7 @@ const DETAIL: Detail = {
 describe('Masivos · importador de contactos', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('sube el archivo con la nota de soporte y muestra el resumen con las filas inválidas', async () => {
+  it('al elegir el archivo muestra la primera fila y las columnas; solo importa al confirmar', async () => {
     const user = userEvent.setup();
     const summary: ImportSummary = {
       importId: 'i1',
@@ -103,18 +123,26 @@ describe('Masivos · importador de contactos', () => {
       verified: 2,
       unverified: 1,
     };
-    const fetchMock = routeFetch({ 'POST /api/admin/contacts/import': () => ({ body: summary }) });
+    const fetchMock = routeFetch({
+      'POST /api/admin/contacts/import/preview': () => ({ body: FILE_PREVIEW }),
+      'POST /api/admin/contacts/import': () => ({ body: summary }),
+    });
     const onImported = vi.fn();
     render(<ContactImporter onImported={onImported} />);
 
-    const importButton = screen.getByRole('button', { name: 'Importar' });
-    expect(importButton).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Importar' })).toBeDisabled();
     await user.upload(screen.getByLabelText(/Archivo/), new File(['Teléfono,Origen,Autorización'], 'base.csv', { type: 'text/csv' }));
+    const preview = await screen.findByRole('region', { name: 'Vista previa del archivo' });
+    expect(within(preview).getByTestId('first-row')).toHaveTextContent('Marta Gómez');
+    expect(within(preview).getByTestId('first-contact')).toHaveTextContent('Así quedaría (fila 2): Marta Gómez · +57 300 123 4567 · Origen «Feria» · verificado');
+    expect(within(preview).getByRole('list', { name: 'Columnas reconocidas' })).toHaveTextContent('Teléfono ← «Telefono»');
+    expect(within(preview).getByTestId('preview-counts')).toHaveTextContent('5 contactos válidos (4 verificados, 1 no verificados) · 2 filas inválidas');
+    expect(callsTo(fetchMock, 'POST', '/api/admin/contacts/import')).toHaveLength(0); // la vista previa no importa
     await user.type(screen.getByLabelText(/Soporte documental/), 'Contrato cláusula 7');
-    await user.click(importButton);
+    await user.click(screen.getByRole('button', { name: 'Confirmar e importar 5 contactos' }));
 
     const result = await screen.findByRole('status', { name: 'Resumen de la importación' });
-    expect(onImported).toHaveBeenCalled();
+    expect(onImported).toHaveBeenCalledWith(summary, FILE_PREVIEW);
     const form = callsTo(fetchMock, 'POST', '/api/admin/contacts/import')[0].init?.body as FormData;
     expect((form.get('file') as File).name).toBe('base.csv');
     expect(form.get('consentNote')).toBe('Contrato cláusula 7');
@@ -128,15 +156,40 @@ describe('Masivos · importador de contactos', () => {
     expect(within(result).getByText('Fila 5: el Teléfono "123" no es un celular colombiano válido')).toBeInTheDocument();
   });
 
-  it('muestra el error del archivo (columnas faltantes)', async () => {
+  it('archivo sin columnas obligatorias: muestra cuáles faltan y no deja importar', async () => {
     const user = userEvent.setup();
-    routeFetch({
-      'POST /api/admin/contacts/import': () => ({ status: 400, body: { message: 'Faltan columnas obligatorias: Origen, Autorización' } }),
+    const fetchMock = routeFetch({
+      'POST /api/admin/contacts/import/preview': () => ({
+        body: {
+          ...FILE_PREVIEW,
+          error: 'Faltan columnas obligatorias: Origen, Autorización',
+          columns: { phone: 'Celular', name: 'Nombre' },
+          firstContact: null,
+          sources: [],
+          errors: [],
+        },
+      }),
     });
     render(<ContactImporter onImported={vi.fn()} />);
     await user.upload(screen.getByLabelText(/Archivo/), new File(['x'], 'x.csv'));
-    await user.click(screen.getByRole('button', { name: 'Importar' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Faltan columnas obligatorias: Origen, Autorización');
+    expect(screen.getByRole('list', { name: 'Columnas reconocidas' })).toHaveTextContent('Origen (falta)');
+    expect(screen.getByRole('button', { name: 'Importar' })).toBeDisabled();
+    expect(callsTo(fetchMock, 'POST', '/api/admin/contacts/import')).toHaveLength(0);
+  });
+
+  it('descarga la plantilla Excel (.xlsx) del servidor', async () => {
+    const user = userEvent.setup();
+    const fetchMock = routeFetch({ 'GET /api/admin/contacts/import-template': () => ({ body: {} }) });
+    const createObjectURL = vi.fn(() => 'blob:plantilla');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    render(<ContactImporter onImported={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Descargar plantilla Excel (.xlsx)' }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(callsTo(fetchMock, 'GET', '/api/admin/contacts/import-template')).toHaveLength(1);
+    expect((click.mock.instances[0] as unknown as HTMLAnchorElement).download).toBe('plantilla-contactos-jurisglobal.xlsx');
+    click.mockRestore();
   });
 });
 
@@ -147,7 +200,14 @@ describe('Masivos · nueva campaña con vista previa', () => {
     const user = userEvent.setup();
     const fetchMock = routeFetch({
       'GET /api/admin/templates': () => ({
-        body: { items: [TEMPLATE, { ...TEMPLATE, id: 't2', name: 'sin_baja', hasOptOut: false, problems: ['Sin opción de baja'] }], canSync: false },
+        body: {
+          items: [
+            TEMPLATE,
+            { ...TEMPLATE, id: 't2', name: 'pendiente', status: 'PENDING', problems: ['La plantilla no está aprobada en Meta'] },
+            { ...TEMPLATE, id: 't3', name: 'sin_baja', footerText: null, buttons: [], hasOptOut: false, warnings: ['Sin botón ni pie de baja'] },
+          ],
+          canSync: false,
+        },
       }),
       'GET /api/admin/contacts/sources': () => ({ body: [{ source: 'Consultoría Andina', count: 2000 }] }),
       'POST /api/admin/campaigns/preview': () => ({ body: PREVIEW }),
@@ -157,7 +217,9 @@ describe('Masivos · nueva campaña con vista previa', () => {
     render(<CampaignForm onClose={vi.fn()} onCreated={onCreated} />);
 
     const select = await screen.findByLabelText('Plantilla aprobada');
-    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(2)); // la que no tiene baja no aparece
+    // La no aprobada no aparece; la que no tiene opción de baja SÍ (solo es un aviso)
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3));
+    expect(within(select).getByRole('option', { name: /sin_baja/ })).toBeInTheDocument();
     await user.type(screen.getByLabelText('Nombre de la campaña'), 'Asesoría inicial · diciembre');
     await user.selectOptions(select, 't1');
     await user.selectOptions(screen.getByLabelText('Valor de {{1}}'), 'firstName');
@@ -167,7 +229,11 @@ describe('Masivos · nueva campaña con vista previa', () => {
     expect(screen.getByTestId('preview-optedout')).toHaveTextContent('20');
     expect(screen.getByTestId('preview-unverified')).toHaveTextContent('800');
     expect(screen.getByTestId('preview-capped')).toHaveTextContent('35 ya alcanzaron su tope');
-    expect(screen.getByText('Hola Ana, en JurisGlobal te acompañamos con tu caso.')).toBeInTheDocument();
+    const phone = screen.getByRole('figure', { name: 'Vista previa en WhatsApp' });
+    expect(within(phone).getByTestId('wa-body')).toHaveTextContent('Hola Ana, en JurisGlobal te acompañamos con tu caso.');
+    expect(within(phone).getByTestId('wa-footer')).toHaveTextContent('Responde STOP para no recibir más');
+    expect(within(phone).getByRole('list', { name: 'Botones de la plantilla' })).toHaveTextContent('No recibir más');
+    expect(phone).toHaveTextContent('Con el primer contacto que la recibirá (Ana María Pérez)');
     expect(bodyOf(callsTo(fetchMock, 'POST', '/api/admin/campaigns/preview').at(-1)?.init)).toEqual({
       templateId: 't1',
       audience: { type: 'all' },

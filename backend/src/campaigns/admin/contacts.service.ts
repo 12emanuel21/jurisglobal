@@ -7,7 +7,7 @@ import { RealtimeGateway } from '../../realtime/realtime.gateway';
 import { phoneHash } from '../../common/crypto';
 import { formatPhone, isColombianMobile, toColombianPhone } from '../../common/phone';
 import { applyOptOut } from '../../compliance/opt-out-core';
-import { parseContactSpreadsheet, type ContactImportRow } from '../../contacts/contacts-spreadsheet';
+import { parseContactSpreadsheet, type Column, type ContactImportRow } from '../../contacts/contacts-spreadsheet';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { ContactQueryDto, ContactStatusFilter, CreateContactDto } from './dto';
 
@@ -28,6 +28,33 @@ export interface UploadedSpreadsheet {
   buffer: Buffer;
   originalname: string;
   size: number;
+}
+
+export interface ImportPreview {
+  fileName: string;
+  /** Problema que impide importar el archivo (columnas, formato, tamaño); null = importable */
+  error: string | null;
+  headers: string[];
+  columns: Partial<Record<Column, string>>;
+  firstRow: Record<string, string> | null;
+  firstContact: {
+    row: number;
+    phone: string;
+    name: string | null;
+    email: string | null;
+    source: string;
+    consent: 'DOCUMENTED' | 'UNVERIFIED';
+    tags: string[];
+  } | null;
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  verified: number;
+  unverified: number;
+  /** Valores de Origen del archivo (para elegir la audiencia de una campaña) */
+  sources: string[];
+  errors: string[];
 }
 
 export interface ImportSummary {
@@ -230,18 +257,58 @@ export class ContactsService {
     return { ok: true };
   }
 
-  async import(
-    actor: AuthenticatedUser,
-    file: UploadedSpreadsheet | undefined,
-    consentNote?: string,
-  ): Promise<ImportSummary> {
+  private checkedFile(file: UploadedSpreadsheet | undefined): { buffer: Buffer; fileName: string } {
     if (!file?.buffer?.length) throw new BadRequestException('Adjunta un archivo .xlsx o .csv');
     if (file.size > MAX_IMPORT_BYTES) throw new BadRequestException('El archivo supera 5 MB');
     const fileName = file.originalname.slice(0, 200);
     if (!/\.(xlsx|xls|csv)$/i.test(fileName))
       throw new BadRequestException('Solo se aceptan archivos .xlsx, .xls o .csv');
+    return { buffer: file.buffer, fileName };
+  }
 
-    const parsed = parseContactSpreadsheet(file.buffer, fileName);
+  /**
+   * Vista previa del archivo ANTES de importar (no toca la base): columnas reconocidas, primera fila
+   * tal como viene y como quedaría el contacto, y conteos con las mismas reglas del importador.
+   */
+  previewImport(file: UploadedSpreadsheet | undefined): ImportPreview {
+    const { buffer, fileName } = this.checkedFile(file);
+    const parsed = parseContactSpreadsheet(buffer, fileName);
+    const first = parsed.rows[0];
+    return {
+      fileName,
+      error: parsed.fatal ? parsed.errors[0] : null,
+      headers: parsed.headers,
+      columns: parsed.columns,
+      firstRow: parsed.firstRow,
+      firstContact: first
+        ? {
+            row: first.row,
+            phone: formatPhone(first.phone),
+            name: first.name,
+            email: first.email,
+            source: first.source,
+            consent: first.consent,
+            tags: first.tags,
+          }
+        : null,
+      totalRows: parsed.rows.length + parsed.invalidRows + parsed.duplicateRows,
+      validRows: parsed.rows.length,
+      invalidRows: parsed.invalidRows,
+      duplicateRows: parsed.duplicateRows,
+      verified: parsed.rows.filter((r) => r.consent === 'DOCUMENTED').length,
+      unverified: parsed.rows.filter((r) => r.consent === 'UNVERIFIED').length,
+      sources: [...new Set(parsed.rows.map((r) => r.source))].slice(0, 50),
+      errors: parsed.fatal ? [] : parsed.errors.slice(0, 10),
+    };
+  }
+
+  async import(
+    actor: AuthenticatedUser,
+    file: UploadedSpreadsheet | undefined,
+    consentNote?: string,
+  ): Promise<ImportSummary> {
+    const { buffer, fileName } = this.checkedFile(file);
+    const parsed = parseContactSpreadsheet(buffer, fileName);
     if (parsed.fatal) throw new BadRequestException(parsed.errors[0]);
 
     const rows = parsed.rows.map((r) => ({ ...r, hash: phoneHash(r.phone) }));

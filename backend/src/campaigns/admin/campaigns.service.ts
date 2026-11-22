@@ -13,7 +13,14 @@ import { CLOCK, type Clock } from '../clock';
 import { TwoFactorAuthService } from '../../auth/two-factor-auth.service';
 import { CATEGORY_LABELS, META_ERROR_LABELS, type MetaErrorCategory } from '../meta-errors';
 import { resolveAudience, summarizeAudience, type Audience } from '../audience';
-import { normalizeMapping, renderBody, resolveVariables, templateLaunchProblems } from '../template-rules';
+import {
+  headerTextOf,
+  normalizeMapping,
+  renderBody,
+  resolveVariables,
+  templateLaunchProblems,
+  templateWarnings,
+} from '../template-rules';
 import { toTemplateButtons } from './templates.service';
 import type { CampaignPreviewDto, CreateCampaignDto, RecipientsQueryDto } from './dto';
 
@@ -271,13 +278,12 @@ export class CampaignsService {
     return {
       kind: template.purpose,
       ...summary,
-      problems: templateLaunchProblems({
-        status: template.status,
-        hasOptOut: template.hasOptOut,
-        purpose: template.purpose,
-        buttons,
-      }),
+      problems: templateLaunchProblems({ status: template.status, purpose: template.purpose, buttons }),
+      warnings: templateWarnings(template),
+      /** Contacto de ejemplo (el primero que recibiría): la vista previa del panel arma el mensaje con él */
+      sampleContact: { name: sampleContact.name ?? null },
       sample: {
+        header: headerTextOf(template.components),
         body: renderBody(template.bodyText, resolveVariables(mapping, template.variableCount, sampleContact)),
         footer: template.footerText,
         buttons: buttons.map((b) => b.text),
@@ -289,12 +295,7 @@ export class CampaignsService {
     if (actor.isTwoFactorEnabled) await this.twoFactorAuth.assertSudo({ user: actor, sudoToken });
     const template = await this.loadTemplate(dto.templateId);
     const buttons = toTemplateButtons(template.buttons);
-    const problems = templateLaunchProblems({
-      status: template.status,
-      hasOptOut: template.hasOptOut,
-      purpose: template.purpose,
-      buttons,
-    });
+    const problems = templateLaunchProblems({ status: template.status, purpose: template.purpose, buttons });
     if (problems.length) throw new BadRequestException(problems.join('. '));
     const audience = this.audienceOf(dto);
     const mapping = this.mappingOf(dto.variableMapping, template.variableCount);

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Headers,
   HttpCode,
   Param,
@@ -10,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,6 +24,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { SUDO_HEADER } from '../../auth/sudo';
+import { buildContactTemplateXlsx } from '../../contacts/contacts-spreadsheet';
 import { ContactsService, MAX_IMPORT_BYTES, type UploadedSpreadsheet } from './contacts.service';
 import { TemplatesService } from './templates.service';
 import { CampaignsService } from './campaigns.service';
@@ -34,7 +37,9 @@ import {
   OptOutContactDto,
   RecipientsQueryDto,
   TemplateDto,
+  TestSendDto,
 } from './dto';
+import { TestSendService } from './test-send.service';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
 
@@ -58,6 +63,23 @@ export class AdminContactsController {
   @Get('imports')
   imports() {
     return this.contacts.imports();
+  }
+
+  /** Plantilla Excel (.xlsx) con las columnas exactas del importador */
+  @Get('import-template')
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @Header('Content-Disposition', 'attachment; filename="plantilla-contactos-jurisglobal.xlsx"')
+  @Header('Cache-Control', 'no-store')
+  importTemplate() {
+    return new StreamableFile(buildContactTemplateXlsx());
+  }
+
+  /** Vista previa del archivo antes de importar (no guarda nada) */
+  @Post('import/preview')
+  @HttpCode(200)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMPORT_BYTES, files: 1 } }))
+  previewImport(@UploadedFile() file: UploadedSpreadsheet | undefined) {
+    return this.contacts.previewImport(file);
   }
 
   @Post()
@@ -123,7 +145,10 @@ export class AdminTemplatesController {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 export class AdminCampaignsController {
-  constructor(private readonly campaigns: CampaignsService) {}
+  constructor(
+    private readonly campaigns: CampaignsService,
+    private readonly testSend: TestSendService,
+  ) {}
 
   @Get()
   list() {
@@ -134,6 +159,16 @@ export class AdminCampaignsController {
   @HttpCode(200)
   preview(@Body() dto: CampaignPreviewDto) {
     return this.campaigns.preview(dto);
+  }
+
+  /**
+   * Envío de prueba / unitario: una plantilla aprobada a un celular. Envía de verdad a Meta (si
+   * está configurado): con 2FA activo exige Sudo Mode, igual que lanzar una campaña.
+   */
+  @Post('test-send')
+  @HttpCode(200)
+  sendTest(@CurrentUser() user: AuthenticatedUser, @Body() dto: TestSendDto, @Headers(SUDO_HEADER) sudoToken?: string) {
+    return this.testSend.send(user, dto, sudoToken);
   }
 
   /** Lanzar es una acción sensible: con 2FA activo exige Sudo Mode (x-sudo-token) */

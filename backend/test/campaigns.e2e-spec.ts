@@ -878,9 +878,186 @@ describe('Etapa 6 · Masivos (integración)', () => {
     });
   });
 
+  // ─────────────── Envío de prueba / unitario ───────────────
+  describe('Envío de prueba / unitario (1 a 1)', () => {
+    const SUNDAY_10AM = bogota('2026-11-29T10:00');
+    const simple = () =>
+      template({
+        name: 'prueba_envio_masivo',
+        bodyText: 'Prueba de envío de JurisGlobal.',
+        footerText: null,
+        buttons: [],
+        variableCount: 0,
+        hasOptOut: false,
+      });
+    const testSend = (body: Record<string, unknown>, who = admin) =>
+      api().post('/admin/campaigns/test-send').set(as(who)).send(body);
+
+    it('plantilla aprobada sin variables ni opción de baja: envía, queda en el Inbox y en la bitácora', async () => {
+      const t = await simple();
+      const res = await testSend({ templateId: t.id, phone: '+57 300 111 2233' }).expect(200);
+      expect(res.body).toMatchObject({
+        status: 'SENT',
+        phone: '+57 300 111 2233',
+        body: 'Prueba de envío de JurisGlobal.',
+        insideWindow: true,
+        windowBypassed: false,
+      });
+      expect(cloudApi.sendTemplate).toHaveBeenCalledWith('573001112233', 'prueba_envio_masivo', 'es_CO', []);
+      const msg = await prisma.message.findFirstOrThrow({ where: { waMessageId: res.body.waMessageId } });
+      expect(msg).toMatchObject({ direction: 'OUTBOUND', type: 'template', sentById: admin.id });
+      const log = await prisma.auditLog.findFirstOrThrow({ where: { action: 'campaign.test_send' } });
+      expect(log.data).toMatchObject({ template: 'prueba_envio_masivo', skipWindow: false, windowBypassed: false });
+      // No crea campañas ni cuenta en los topes de masivos
+      expect(await prisma.campaignMessage.count()).toBe(0);
+    });
+
+    it('reemplaza las variables y exige todas', async () => {
+      const t = await template();
+      const missing = await testSend({ templateId: t.id, phone: '3001112233' }).expect(400);
+      expect(missing.body.message).toMatch(/\{\{1\}\}/);
+      const ok = await testSend({ templateId: t.id, phone: '3001112233', variables: ['Marta'] }).expect(200);
+      expect(ok.body.body).toBe('Hola Marta, en JurisGlobal te acompañamos con tu caso. ¿Hablamos?');
+      expect(cloudApi.sendTemplate).toHaveBeenCalledWith('573001112233', 'promo_asesoria', 'es_CO', ['Marta']);
+    });
+
+    it('domingo: sin la casilla respeta la Ley 2300; con «Enviar inmediatamente» envía y lo registra', async () => {
+      const t = await simple();
+      clock.current = SUNDAY_10AM;
+      const blocked = await testSend({ templateId: t.id, phone: '3001112233' }).expect(409);
+      expect(blocked.body.message).toMatch(/Ley 2300/);
+      expect(blocked.body.message).toMatch(/lunes/);
+      expect(cloudApi.sendTemplate).not.toHaveBeenCalled();
+
+      const res = await testSend({ templateId: t.id, phone: '3001112233', skipWindow: true }).expect(200);
+      expect(res.body).toMatchObject({ status: 'SENT', insideWindow: false, windowBypassed: true });
+      const log = await prisma.auditLog.findFirstOrThrow({ where: { action: 'campaign.test_send' } });
+      expect(log.data).toMatchObject({ skipWindow: true, insideWindow: false, windowBypassed: true });
+      // La configuración legal no cambió: una campaña normal lanzada ese domingo sigue esperando al lunes
+      expect(await prisma.sendWindow.count({ where: { dayOfWeek: 0, enabled: true } })).toBe(0);
+      await contact('DOCUMENTED');
+      const campaign = await launch((await template()).id);
+      cloudApi.sendTemplate.mockClear();
+      expect(await engine.step(campaign.id)).toEqual({ kind: 'wait', ms: 21 * 3600_000, reason: 'WINDOW' });
+      expect(cloudApi.sendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('festivo: también exige la casilla', async () => {
+      await prisma.holiday.upsert({
+        where: { date: new Date('2026-12-08') },
+        create: { date: new Date('2026-12-08'), name: 'Inmaculada Concepción' },
+        update: { enabled: true },
+      });
+      clock.current = bogota('2026-12-08T10:00');
+      const t = await simple();
+      await testSend({ templateId: t.id, phone: '3001112233' }).expect(409);
+      await testSend({ templateId: t.id, phone: '3001112233', skipWindow: true }).expect(200);
+    });
+
+    it('la baja se respeta siempre; plantilla no aprobada, celular inválido y ASESOR se rechazan', async () => {
+      const t = await simple();
+      await contact('OPTED_OUT', { phone: '573004445566', optedOutAt: new Date() });
+      const res = await testSend({ templateId: t.id, phone: '300 444 5566', skipWindow: true }).expect(409);
+      expect(res.body.message).toMatch(/baja/);
+      const pending = await template({ name: 'pendiente', status: 'PENDING' });
+      await testSend({ templateId: pending.id, phone: '3001112233' }).expect(400);
+      await testSend({ templateId: t.id, phone: '6015551234' }).expect(400);
+      await testSend({ templateId: t.id, phone: '3001112233' }, asesor).expect(403);
+      expect(cloudApi.sendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('error 131050 de Meta en la prueba: informa y registra la baja', async () => {
+      const t = await simple();
+      cloudApi.sendTemplate.mockImplementationOnce(() =>
+        Promise.reject(new WhatsAppApiError('marketing bloqueado', 400, 131050)),
+      );
+      const res = await testSend({ templateId: t.id, phone: '3007778899' }).expect(502);
+      expect(res.body.message).toMatch(/131050/);
+      expect(await prisma.suppression.count({ where: { phoneHash: phoneHash('573007778899') } })).toBe(1);
+    });
+  });
+
+  // ─────────────── Vista previa del archivo y plantilla Excel ───────────────
+  describe('Plantilla Excel y vista previa de la primera fila', () => {
+    // Respuesta binaria (.xlsx) como Buffer
+    const binary = (res: request.Response, cb: (err: Error | null, body: Buffer) => void) => {
+      const chunks: Buffer[] = [];
+      const stream = res as unknown as NodeJS.ReadableStream;
+      stream.on('data', (c: Buffer) => chunks.push(c));
+      stream.on('end', () => cb(null, Buffer.concat(chunks)));
+    };
+
+    it('la plantilla .xlsx trae las columnas exactas y se puede importar tal cual; la vista previa no guarda nada', async () => {
+      const file = await api()
+        .get('/admin/contacts/import-template')
+        .set(as(admin))
+        .buffer(true)
+        .parse(binary)
+        .expect(200)
+        .expect('Content-Type', /spreadsheetml/);
+      const book = XLSX.read(file.body as Buffer, { type: 'buffer' });
+      expect(book.SheetNames).toEqual(['Contactos', 'Instrucciones']);
+      const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets.Contactos, { header: 1, raw: false });
+      expect(rows[0]).toEqual(['Telefono', 'Nombre', 'Origen', 'Autorizacion', 'Correo', 'Etiquetas']);
+
+      const preview = await api()
+        .post('/admin/contacts/import/preview')
+        .set(as(admin))
+        .attach('file', file.body as Buffer, 'plantilla.xlsx')
+        .expect(200);
+      expect(preview.body).toMatchObject({
+        error: null,
+        validRows: 2,
+        verified: 1,
+        unverified: 1,
+        columns: { phone: 'Telefono', name: 'Nombre', source: 'Origen', consent: 'Autorizacion' },
+        firstRow: {
+          Telefono: '300 123 4567',
+          Nombre: 'Ana María Pérez',
+          Origen: 'Consultoría Andina',
+          Autorizacion: 'Sí',
+        },
+        firstContact: {
+          phone: '+57 300 123 4567',
+          name: 'Ana María Pérez',
+          consent: 'DOCUMENTED',
+          source: 'Consultoría Andina',
+        },
+        sources: ['Consultoría Andina', 'Feria Barranquilla 2026'],
+      });
+      expect(await prisma.contact.count()).toBe(0);
+
+      const imported = await api()
+        .post('/admin/contacts/import')
+        .set(as(admin))
+        .attach('file', file.body as Buffer, 'plantilla.xlsx')
+        .expect(200);
+      expect(imported.body).toMatchObject({ imported: 2, verified: 1, unverified: 1, invalid: 0 });
+    });
+
+    it('vista previa de un archivo sin columnas obligatorias: muestra las cabeceras y el error', async () => {
+      const res = await api()
+        .post('/admin/contacts/import/preview')
+        .set(as(admin))
+        .attach('file', Buffer.from('Nombre,Celular\nAna,3001234567\n'), 'x.csv')
+        .expect(200);
+      expect(res.body.error).toMatch(/Faltan columnas obligatorias: Origen, Autorización/);
+      expect(res.body).toMatchObject({
+        headers: ['Nombre', 'Celular'],
+        firstRow: { Nombre: 'Ana', Celular: '3001234567' },
+      });
+      await api().get('/admin/contacts/import-template').set(as(asesor)).expect(403);
+      await api()
+        .post('/admin/contacts/import/preview')
+        .set(as(asesor))
+        .attach('file', Buffer.from('a'), 'a.csv')
+        .expect(403);
+    });
+  });
+
   // ─────────────── Plantillas ───────────────
   describe('Plantillas (metadatos)', () => {
-    it('alta manual con variables y opción de baja; sin opción de baja no se puede lanzar', async () => {
+    it('alta manual con variables; sin opción de baja solo hay un aviso y la campaña se puede lanzar', async () => {
       const created = await api()
         .post('/admin/templates')
         .set(as(admin))
@@ -894,9 +1071,21 @@ describe('Etapa 6 · Masivos (integración)', () => {
         })
         .expect(201);
       expect(created.body).toMatchObject({ variableCount: 2, hasOptOut: false, status: 'APPROVED' });
-      expect(created.body.problems[0]).toMatch(/opción de baja/);
+      expect(created.body.problems).toEqual([]);
+      expect(created.body.warnings[0]).toMatch(/STOP/);
       await contact('DOCUMENTED');
-      await api()
+      const preview = await api()
+        .post('/admin/campaigns/preview')
+        .set(as(admin))
+        .send({
+          templateId: created.body.id,
+          audience: { type: 'all' },
+          variableMapping: { '2': { type: 'literal', value: 'tránsito' } },
+        })
+        .expect(200);
+      expect(preview.body).toMatchObject({ problems: [], recipients: 1, sampleContact: { name: 'Ana María Pérez' } });
+      expect(preview.body.warnings[0]).toMatch(/STOP/);
+      const launched = await api()
         .post('/admin/campaigns')
         .set(as(admin))
         .send({
@@ -904,8 +1093,10 @@ describe('Etapa 6 · Masivos (integración)', () => {
           templateId: created.body.id,
           audience: { type: 'all' },
           variableMapping: { '2': { type: 'literal', value: 'tránsito' } },
+          dryRun: true,
         })
-        .expect(400);
+        .expect(201);
+      await api().post(`/admin/campaigns/${launched.body.id}/cancel`).set(as(admin)).expect(200);
 
       const fixed = await api()
         .patch(`/admin/templates/${created.body.id}`)
@@ -921,11 +1112,13 @@ describe('Etapa 6 · Masivos (integración)', () => {
           updatedAt: undefined,
           campaigns: undefined,
           problems: undefined,
+          warnings: undefined,
+          headerText: undefined,
           status: 'APPROVED',
           footerText: 'Responde STOP para no recibir más',
         })
         .expect(200);
-      expect(fixed.body).toMatchObject({ hasOptOut: true, problems: [] });
+      expect(fixed.body).toMatchObject({ hasOptOut: true, problems: [], warnings: [] });
       await api()
         .post('/admin/templates')
         .set(as(admin))
