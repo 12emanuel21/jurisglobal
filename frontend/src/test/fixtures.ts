@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { PublicConfig } from '@/lib/public-config';
 
-/** Igual que la semilla del backend: las 6 áreas de servicio (nombres cortos) + Otro */
+/** Igual que la semilla del backend: las 6 áreas, Soluciones PYMES y Otro */
 export const MOTIVOS = [
   { id: 'm-centrales', name: 'Centrales de riesgo' },
   { id: 'm-insolvencia', name: 'Insolvencia y deudas' },
@@ -9,6 +9,7 @@ export const MOTIVOS = [
   { id: 'm-procesos', name: 'Procesos y embargos' },
   { id: 'm-laboral', name: 'Derecho laboral' },
   { id: 'm-familia', name: 'Familia y tránsito' },
+  { id: 'm-pymes', name: 'Soluciones PYMES' },
   { id: 'm-otro', name: 'Otro' },
 ];
 

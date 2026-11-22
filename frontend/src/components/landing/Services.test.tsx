@@ -5,6 +5,7 @@ import { resetPublicConfigCache } from '@/lib/public-config';
 import { MOTIVOS, makeConfig, mockApi } from '@/test/fixtures';
 import { ContactForm } from './ContactForm';
 import { SERVICES, Services } from './Services';
+import { BUSINESS, BUSINESS_AREAS } from './BusinessSolutions';
 
 describe('Services (6 áreas de servicio)', () => {
   beforeEach(() => resetPublicConfigCache());
@@ -72,5 +73,57 @@ describe('Services (6 áreas de servicio)', () => {
       await user.click(link);
       await waitFor(() => expect(select).toHaveValue(id));
     }
+  });
+
+  it('la línea empresarial B2B va debajo de la cuadrícula (que sigue con 6 tarjetas) con sus 4 pilares', () => {
+    render(<Services />);
+    const grid = screen.getByRole('list', { name: 'Áreas de servicio' });
+    expect(within(grid).getAllByRole('heading')).toHaveLength(6);
+    const b2b = screen.getByTestId('b2b-highlight');
+    expect(grid.compareDocumentPosition(b2b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(b2b).toHaveTextContent('Línea empresarial y B2B');
+    expect(within(b2b).getByRole('heading', { name: 'Soluciones Estratégicas para PYMES, Comerciantes y Empresas' })).toBeInTheDocument();
+    expect(within(within(b2b).getByRole('list', { name: 'Pilares de la línea empresarial' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Talento humano y nómina',
+      'Contabilidad y gestión tributaria',
+      'Derecho comercial y cartera',
+      'Consultoría y protección patrimonial',
+    ]);
+    expect(BUSINESS.motivo).toBe('Soluciones PYMES');
+    expect(MOTIVOS.map((m) => m.name)).toContain(BUSINESS.motivo);
+  });
+
+  it('«Ver alcance completo (5 áreas)» abre el acordeón con los 5 subbloques', async () => {
+    const user = userEvent.setup();
+    render(<Services />);
+    const details = screen.getByText('Ver detalle de servicios por área').closest('details')!;
+    await user.click(screen.getByRole('link', { name: 'Ver alcance completo (5 áreas)' }));
+    expect(details.open).toBe(true);
+    const section = screen.getByRole('region', { name: 'Alcance completo de la línea empresarial' });
+    const blocks = within(section).getAllByRole('article');
+    expect(blocks.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Área de Talento Humano y Gestión Laboral Empresarial',
+      'Área Contable, Financiera y Tributaria',
+      'Asesoría Jurídica Empresarial y Comercial',
+      'Gestión Financiera y Recuperación de Cartera',
+      'Consultoría y Fortalecimiento Empresarial',
+    ]);
+    expect(blocks.map((b) => within(b).getAllByRole('listitem').length)).toEqual([9, 8, 7, 7, 6]);
+    expect(blocks[0]).toHaveTextContent('Gestión del talento y cumplimiento laboral.');
+    expect(BUSINESS_AREAS).toHaveLength(5);
+  });
+
+  it('«Consultar soluciones para empresas» preselecciona Soluciones PYMES', async () => {
+    const user = userEvent.setup();
+    mockApi(makeConfig());
+    render(
+      <>
+        <Services />
+        <ContactForm />
+      </>,
+    );
+    const select = await screen.findByLabelText('Motivo de tu consulta');
+    await user.click(within(screen.getByTestId('b2b-highlight')).getByRole('link', { name: 'Consultar soluciones para empresas' }));
+    await waitFor(() => expect(select).toHaveValue('m-pymes'));
   });
 });

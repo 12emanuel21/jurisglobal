@@ -1,4 +1,5 @@
 import { Briefcase, ChevronDown, Gavel, HandCoins, Scale, ShieldCheck, TrendingUp, type LucideIcon } from 'lucide-react';
+import { BusinessDetail, BusinessHighlight } from './BusinessSolutions';
 import { OpenDetailLink } from './OpenDetailLink';
 import { SelectMotivoLink } from './SelectMotivoLink';
 
@@ -123,10 +124,10 @@ export function Services() {
         <div className="max-w-2xl">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-gold-700">Servicios</p>
           <h2 id="servicios-title" className="mt-2 font-serif text-3xl font-bold text-navy sm:text-4xl">
-            Áreas en las que te acompañamos
+            Áreas en las que te brindamos soluciones
           </h2>
           <p className="mt-4 text-slate-700">
-            Analizamos la viabilidad legal de tu caso y te explicamos con claridad las opciones disponibles antes de que tomes cualquier decisión.
+            Analizamos la viabilidad legal de tu caso y te explicamos con claridad las opciones disponibles para proteger tus intereses.
           </p>
         </div>
 
@@ -171,36 +172,37 @@ export function Services() {
           ))}
         </ul>
 
-        {withDetails.length > 0 && (
-          <details id={SERVICE_DETAILS_ID} className="group mt-8 scroll-mt-24 rounded-2xl border border-slate-200 bg-[#f8fafc]">
-            <summary className="tap flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-5 py-4 font-semibold text-[#0d223d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ca9e3d] [&::-webkit-details-marker]:hidden">
-              Ver detalle de servicios por área
-              <ChevronDown className="h-5 w-5 shrink-0 text-[#ca9e3d] transition-transform group-open:rotate-180" aria-hidden="true" />
-            </summary>
-            <div className="space-y-8 border-t border-slate-200 px-5 pb-6 pt-5">
-              {withDetails.map((s) => (
-                <section key={s.id} id={`detalle-${s.id}`} aria-labelledby={`detalle-${s.id}-title`} className="scroll-mt-24">
-                  <h3 id={`detalle-${s.id}-title`} className="font-serif text-xl font-bold text-[#0d223d]">
-                    {s.detailTitle ?? s.title}
-                  </h3>
-                  <ul className="mt-4 grid gap-3 md:grid-cols-2">
-                    {s.details!.map((d) => (
-                      <li key={d.term} className="flex gap-2 text-sm leading-relaxed text-slate-700">
-                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ca9e3d]" aria-hidden="true" />
-                        <span>
-                          <em className="font-semibold text-[#0d223d]">{d.term}:</em> {d.text}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <SelectMotivoLink motivo={s.motivo} className="mt-4">
-                    Consultar sobre {s.cta}
-                  </SelectMotivoLink>
-                </section>
-              ))}
-            </div>
-          </details>
-        )}
+        <BusinessHighlight detailsId={SERVICE_DETAILS_ID} />
+
+        <details id={SERVICE_DETAILS_ID} className="group mt-8 scroll-mt-24 rounded-2xl border border-slate-200 bg-[#f8fafc]">
+          <summary className="tap flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-5 py-4 font-semibold text-[#0d223d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ca9e3d] [&::-webkit-details-marker]:hidden">
+            Ver detalle de servicios por área
+            <ChevronDown className="h-5 w-5 shrink-0 text-[#ca9e3d] transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="space-y-8 border-t border-slate-200 px-5 pb-6 pt-5">
+            {withDetails.map((s) => (
+              <section key={s.id} id={`detalle-${s.id}`} aria-labelledby={`detalle-${s.id}-title`} className="scroll-mt-24">
+                <h3 id={`detalle-${s.id}-title`} className="font-serif text-xl font-bold text-[#0d223d]">
+                  {s.detailTitle ?? s.title}
+                </h3>
+                <ul className="mt-4 grid gap-3 md:grid-cols-2">
+                  {s.details!.map((d) => (
+                    <li key={d.term} className="flex gap-2 text-sm leading-relaxed text-slate-700">
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ca9e3d]" aria-hidden="true" />
+                      <span>
+                        <em className="font-semibold text-[#0d223d]">{d.term}:</em> {d.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <SelectMotivoLink motivo={s.motivo} className="mt-4">
+                  Consultar sobre {s.cta}
+                </SelectMotivoLink>
+              </section>
+            ))}
+            <BusinessDetail />
+          </div>
+        </details>
 
         <p className="mt-8 text-xs leading-relaxed text-slate-500">
           La información de este sitio es general y no constituye asesoría jurídica. Cada caso se analiza de forma individual y su resultado
