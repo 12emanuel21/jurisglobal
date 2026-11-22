@@ -1,0 +1,33 @@
+# Secretos
+.env
+.env.*
+!.env.example
+*.pem
+
+# Material de referencia de terceros (otro cliente): nunca se versiona
+referencias/
+
+# Dependencias y builds
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Datos locales
+backups/
+uploads/
+*.dump
+*.sqlite3
+
+# Logs y sistema
+*.log
+npm-debug.log*
+.DS_Store
+
+# Editor / herramientas locales
+.vscode/
+.idea/
+.claude/settings.local.json

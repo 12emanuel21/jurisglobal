@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# JurisGlobal · atajos (equivalente al Makefile, para servidores sin `make`).
+# Todos fijan el proyecto "jurisglobal": nunca tocan los contenedores de KovalCloud.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+PROD=(docker compose -p jurisglobal -f docker-compose.yml)
+DEV=(docker compose -p jurisglobal -f docker-compose.yml -f docker-compose.dev.yml)
+
+case "${1:-help}" in
+  dev)         "${DEV[@]}" up -d --build ;;
+  up)          "${PROD[@]}" up -d --build ;;
+  down)        "${DEV[@]}" down ;;
+  logs)        "${DEV[@]}" logs -f --tail=100 "${@:2}" ;;
+  ps)          "${DEV[@]}" ps ;;
+  migrate)     "${DEV[@]}" exec api npx prisma migrate deploy ;;
+  migrate-dev) "${DEV[@]}" exec api npx prisma migrate dev --name "${2:?Uso: ./jg migrate-dev <nombre>}" ;;
+  seed)        "${DEV[@]}" exec api npm run seed:dev ;;
+  seed-prod)   "${PROD[@]}" exec api npm run seed ;;
+  test)        "${DEV[@]}" exec api npx jest ;;
+  lint)        "${DEV[@]}" exec api npx tsc --noEmit
+               "${DEV[@]}" exec web npx tsc --noEmit
+               "${DEV[@]}" exec web npx eslint ;;
+  build)       "${PROD[@]}" build ;;
+  backup)      ./scripts/backup_db.sh ;;
+  *)
+    cat <<'EOF'
+./jg dev                 Desarrollo con hot-reload (127.0.0.1: 8088 nginx, 4100 api, 3100 web, 55432 pg, 56379 redis)
+./jg up                  Producción (imágenes compiladas; solo 127.0.0.1:8088)
+./jg down                Detiene la instancia (conserva los datos)
+./jg logs [servicio]     Logs
+./jg ps                  Estado
+./jg migrate             prisma migrate deploy
+./jg migrate-dev <name>  Nueva migración (solo desarrollo)
+./jg seed | seed-prod    Seed idempotente
+./jg test | lint         Pruebas del backend / tipos y lint
+./jg backup              pg_dump a ./backups
+EOF
+    ;;
+esac

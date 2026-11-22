@@ -1,0 +1,466 @@
+// JurisGlobal · esquema de datos (ESP §9, docs/01-propuesta-estructura-y-esquema.md)
+// Convenciones:
+// - Teléfonos en E.164 sin "+" (573001234567).
+// - phoneHash = HMAC-SHA256 del teléfono con una clave del servidor (seudónimo que sobrevive
+//   a la anonimización: mantiene la trazabilidad de consentimientos y bajas, Ley 1581).
+// - Fechas en UTC; las reglas de horario se evalúan en America/Bogota.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Panel ───────────────────────────
+
+/// ADMIN: socios (todo: configuración, masivos, anonimización). ASESOR: leads, notas e inbox.
+enum Role {
+  ADMIN
+  ASESOR
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String
+  name               String
+  role               Role      @default(ASESOR)
+  isActive           Boolean   @default(true)
+  /// Secreto TOTP cifrado (AES-256-GCM, ENCRYPTION_KEY)
+  twoFactorSecret    String?
+  isTwoFactorEnabled Boolean   @default(false)
+  /// Los JWT emitidos antes de este instante dejan de valer
+  passwordChangedAt  DateTime?
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  assignedLeads    Lead[]          @relation("LeadAssignee")
+  notes            LeadNote[]
+  campaigns        Campaign[]
+  imports          ContactImport[]
+  auditLogs        AuditLog[]
+  sentMessages     Message[]       @relation("MessageSender")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// LOGIN, LEAD_STATUS_CHANGED, LEADS_EXPORTED, CAMPAIGN_LAUNCHED, SETTING_UPDATED, DATA_ANONYMIZED…
+  action    String
+  entity    String
+  entityId  String?
+  data      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+/// Parámetros editables desde Configuración (clave -> JSON). Ver src/scripts/seed.ts
+model Setting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}
+
+// ─────────────────────────── Leads ───────────────────────────
+
+enum Channel {
+  WEB
+  WHATSAPP
+  IMPORT
+  PANEL
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  SCHEDULED
+  CLOSED
+}
+
+/// Opciones del desplegable de motivo (Tránsito, Cartera, Deudas, Otro)
+model Motivo {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  leads     Lead[]
+}
+
+model Lead {
+  id              String     @id @default(uuid())
+  fullName        String
+  /// Deduplicación por teléfono (ESP §5, §6.3): un lead por número
+  phone           String     @unique
+  email           String
+  motivoId        String
+  motivo          Motivo     @relation(fields: [motivoId], references: [id])
+  /// Primer canal por el que llegó y último por el que volvió a enviar
+  origin          Channel
+  lastOrigin      Channel
+  status          LeadStatus @default(NEW)
+  assignedToId    String?
+  assignedTo      User?      @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  contactId       String?    @unique
+  contact         Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  submissionCount Int        @default(1)
+  lastSubmittedAt DateTime   @default(now())
+  utm             Json?
+  /// Anonimizado a solicitud del titular: nombre, correo y teléfono reemplazados
+  anonymizedAt    DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  notes    LeadNote[]
+  consents Consent[]
+
+  @@index([status, createdAt])
+  @@index([motivoId])
+  @@index([origin])
+}
+
+model LeadNote {
+  id        String   @id @default(uuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+// ───────────── Consentimiento (Ley 1581 de 2012 / Ley 2300 de 2023 art. 5) ─────────────
+
+enum ConsentPurpose {
+  /// Autorización 1 (web): Aviso de Privacidad, Términos y Condiciones, Política de Cookies
+  PRIVACY_TERMS_COOKIES
+  /// Autorización 2 (web) / botón Acepto (bot): contacto por canal institucional + tratamiento de datos
+  CONTACT_AND_DATA_PROCESSING
+  /// Mensajes de marketing por WhatsApp (masivos)
+  MARKETING_WHATSAPP
+}
+
+/// Registro inmutable: cada aceptación, negativa o revocación es una fila nueva
+model Consent {
+  id           String         @id @default(uuid())
+  leadId       String?
+  lead         Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contactId    String?
+  contact      Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// Se vacía al anonimizar; phoneHash se conserva para la trazabilidad
+  phone        String?
+  phoneHash    String
+  purpose      ConsentPurpose
+  /// false = no aceptó o revocó
+  granted      Boolean
+  channel      Channel
+  /// Versión del texto mostrado (p. ej. "consent.web.contact@1")
+  textVersion  String
+  /// Texto exacto mostrado/aceptado
+  textSnapshot String
+  /// web: {ip, userAgent}; whatsapp: {wamid, buttonId}; import: {importId, row, source}
+  evidence     Json?
+  createdAt    DateTime       @default(now())
+
+  @@index([phoneHash, purpose, createdAt])
+  @@index([leadId])
+}
+
+// ─────────────────────── WhatsApp: conversaciones (Inbox) ───────────────────────
+
+enum MsgDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// CONTACT: la persona · BOT: respuestas automáticas · AGENT: el equipo desde el Inbox ·
+/// SYSTEM: marcadores internos (bot pausado/reanudado), no se envían a la IA ni al cliente
+enum MsgAuthor {
+  CONTACT
+  BOT
+  AGENT
+  SYSTEM
+}
+
+/// Estado de entrega (Meta): sent < delivered < read; failed es terminal
+enum MsgStatus {
+  RECEIVED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MediaKind {
+  IMAGE
+  AUDIO
+  DOCUMENT
+  UNSUPPORTED
+}
+
+model Conversation {
+  id            String    @id @default(uuid())
+  /// Teléfono E.164 del interlocutor (un solo número de empresa)
+  waId          String    @unique
+  contactId     String?   @unique
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// Perfil que reporta WhatsApp (no se usa como nombre del lead)
+  profileName   String?
+  /// Paso del flujo del bot (GREETING, ASK_CONSENT, ASK_NAME, ASK_EMAIL, ASK_MOTIVO, CONFIRM, DONE, DECLINED)
+  flowState     String    @default("IDLE")
+  flowData      Json?
+  /// Handover humano: el bot no responde mientras esté pausado (se reactiva tras 12 h sin actividad del equipo)
+  botPausedAt   DateTime?
+  lastAgentAt   DateTime?
+  /// Ventana de servicio de 24 h de Meta
+  lastInboundAt DateTime?
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  messages      Message[]
+
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id                String        @id @default(uuid())
+  conversationId    String
+  conversation      Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction         MsgDirection
+  author            MsgAuthor
+  /// text, interactive, button, template, image, audio, document, system…
+  type              String
+  /// Texto, caption o transcripción de la nota de voz
+  body              String?
+  /// ids de botón/lista, parámetros de plantilla (nunca secretos)
+  payload           Json?
+  /// Adjunto guardado en uploads/chat/ (solo se sirve con sesión)
+  mediaKind         MediaKind?
+  mediaFile         String?
+  mediaName         String?
+  mediaMime         String?
+  /// Deduplicación de webhooks y matching de estados
+  waMessageId       String?       @unique
+  status            MsgStatus?
+  errorCode         Int?
+  errorDetail       String?
+  sentById          String?
+  sentBy            User?         @relation("MessageSender", fields: [sentById], references: [id], onDelete: SetNull)
+  campaignMessageId String?       @unique
+  campaignMessage   CampaignMessage? @relation(fields: [campaignMessageId], references: [id], onDelete: SetNull)
+  createdAt         DateTime      @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ─────────────────────────── Masivos ───────────────────────────
+
+enum ContactSource {
+  IMPORT
+  WEB
+  WHATSAPP
+  PANEL
+}
+
+/// Base legal para enviar marketing al contacto:
+/// UNVERIFIED: sin soporte documental para JurisGlobal -> solo campaña de confirmación (OPT_IN)
+/// DOCUMENTED: soporte documental de la autorización -> admite marketing
+/// CONFIRMED: aceptó por WhatsApp/web -> admite marketing
+/// OPTED_OUT: baja (STOP, botón, error 131050 o panel) -> excluido de todo envío
+enum ContactConsentStatus {
+  UNVERIFIED
+  DOCUMENTED
+  CONFIRMED
+  OPTED_OUT
+}
+
+model Contact {
+  id              String               @id @default(uuid())
+  phone           String               @unique
+  phoneHash       String               @unique
+  name            String?
+  email           String?
+  source          ContactSource
+  /// Origen declarado (p. ej. nombre de la consultoría o del archivo)
+  sourceDetail    String?
+  tags            String[]
+  consentStatus   ContactConsentStatus @default(UNVERIFIED)
+  importId        String?
+  import          ContactImport?       @relation(fields: [importId], references: [id], onDelete: SetNull)
+  optedOutAt      DateTime?
+  /// KEYWORD, TEMPLATE_BUTTON, META_131050, PANEL, WEB
+  optOutChannel   String?
+  lastMarketingAt DateTime?
+  anonymizedAt    DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  lead         Lead?
+  conversation Conversation?
+  consents     Consent[]
+  campaignMsgs CampaignMessage[]
+
+  @@index([consentStatus])
+}
+
+/// Lista de supresión por seudónimo: una baja sobrevive a la anonimización del contacto
+model Suppression {
+  phoneHash String   @id
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+model ContactImport {
+  id                   String    @id @default(uuid())
+  fileName             String
+  /// Origen declarado de la base (obligatorio)
+  sourceLabel          String
+  /// true solo si hay soporte documental explícito de autorización para JurisGlobal
+  hasDocumentedConsent Boolean   @default(false)
+  consentNote          String?
+  rowsTotal            Int
+  rowsCreated          Int
+  rowsUpdated          Int
+  rowsSkipped          Int
+  /// [{row, reason}] (máx. N)
+  errors               Json?
+  createdById          String?
+  createdBy            User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt            DateTime  @default(now())
+  contacts             Contact[]
+}
+
+model MessageTemplate {
+  id            String     @id @default(uuid())
+  metaId        String     @unique
+  name          String
+  language      String
+  /// MARKETING, UTILITY…
+  category      String
+  /// APPROVED, PAUSED, REJECTED…
+  status        String
+  /// Copia de Meta (HEADER/BODY/FOOTER/BUTTONS)
+  components    Json
+  bodyText      String
+  variableCount Int
+  /// La plantilla trae opción de baja (botón o texto): obligatoria para MARKETING (ESP §7.2)
+  hasOptOut     Boolean    @default(false)
+  lastSyncedAt  DateTime
+  campaigns     Campaign[]
+
+  @@unique([name, language])
+}
+
+/// MARKETING: solo a DOCUMENTED/CONFIRMED · OPT_IN: confirmación de autorización a UNVERIFIED
+enum CampaignKind {
+  MARKETING
+  OPT_IN
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+model Campaign {
+  id              String          @id @default(uuid())
+  name            String
+  kind            CampaignKind    @default(MARKETING)
+  templateId      String
+  template        MessageTemplate @relation(fields: [templateId], references: [id])
+  /// {"1": "contact.name", "2": {"literal": "…"}}
+  variableMapping Json
+  audienceFilter  Json?
+  status          CampaignStatus  @default(DRAFT)
+  /// "No antes de": el envío real respeta ventanas, festivos y topes
+  scheduledAt     DateTime?
+  dailyCap        Int?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  /// MANUAL, QUALITY_RED, ACCOUNT_ERROR…
+  pausedReason    String?
+  createdById     String?
+  createdBy       User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  messages        CampaignMessage[]
+
+  @@index([status, scheduledAt])
+}
+
+enum CampaignMsgStatus {
+  PENDING
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
+model CampaignMessage {
+  id            String            @id @default(uuid())
+  campaignId    String
+  campaign      Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  phone         String
+  variables     Json
+  status        CampaignMsgStatus @default(PENDING)
+  /// OPTED_OUT, NO_CONSENT, FREQUENCY_CAP, DUPLICATE, INVALID_PHONE
+  skipReason    String?
+  attempts      Int               @default(0)
+  waMessageId   String?           @unique
+  errorCode     Int?
+  /// cliente | usuario_meta | cuenta_waba | plantilla | infraestructura | desconocido
+  errorCategory String?
+  errorDetail   String?
+  queuedAt      DateTime?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  failedAt      DateTime?
+  /// La persona respondió: entra al flujo del bot (ESP §7.2)
+  repliedAt     DateTime?
+  createdAt     DateTime          @default(now())
+  message       Message?
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+  @@index([contactId, sentAt])
+}
+
+// ─────────────────── Ventanas horarias y festivos (ESP §7.2) ───────────────────
+
+/// Una franja por día. dayOfWeek: 0 = domingo … 6 = sábado. Horas "HH:MM" en America/Bogota
+model SendWindow {
+  id        String  @id @default(uuid())
+  dayOfWeek Int     @unique
+  opensAt   String
+  closesAt  String
+  enabled   Boolean @default(true)
+}
+
+model Holiday {
+  id      String   @id @default(uuid())
+  date    DateTime @unique @db.Date
+  name    String
+  /// SEED | MANUAL
+  source  String   @default("SEED")
+  /// Permite desmarcar sin borrar
+  enabled Boolean  @default(true)
+}

@@ -1,0 +1,242 @@
+# 02 · Plan de etapas 1 a 7
+
+Este plan ajusta la ESP §12 a lo encontrado en la Etapa 0 (ver `00-mapa-reutilizacion.md` y `01-propuesta-estructura-y-esquema.md`).
+
+Reglas de trabajo en todas las etapas:
+- Nunca se toca `~/dev/kovalcloud` ni sus contenedores. El código de KovalCloud se **copia y adapta** dentro de `./`; no se comparten imports.
+- Todo `docker compose` se ejecuta con `-p jurisglobal` (desde el `Makefile`).
+- Cada etapa termina con sus pruebas en verde y una demostración. Se espera la aprobación antes de pasar a la siguiente.
+
+**Tareas externas que deben arrancar ya**, porque tienen tiempos de espera fuera de nuestro control:
+- (a) Confirmar la app de Meta, la WABA, el número en Cloud API y la verificación del negocio (pregunta 3).
+- (b) Redactar las plantillas de marketing **con opción de baja** y enviarlas a aprobación (ESP §13.7).
+- (c) Obtener la prueba de autorización de la base de 2.000 contactos (pregunta 4).
+- (d) Crear el túnel y el hostname de Cloudflare de pruebas.
+
+---
+
+## Etapa 1 · Bases del monorepo — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
+
+El alcance se amplió según tus respuestas a la Etapa 0. Además de las bases, se portó desde KovalCloud el código reutilizable:
+
+- Autenticación: cookie `httpOnly`, 2FA y modo sudo.
+- Cliente oficial de Cloud API: texto, botones, listas, plantillas, documentos, descarga de adjuntos y marcar como leído.
+- Webhook estricto.
+- Inbox multimedia: backend y página del panel.
+- Gemini con fallback.
+- Ventanas semanales y festivos.
+- Importador xlsx/csv de contactos (solo el parser).
+- El **esquema de Prisma completo** con su migración inicial, y el *seed* idempotente.
+
+Lo que se movió de etapa:
+- `worker.ts` y BullMQ pasan a la Etapa 6, cuando haya trabajos que encolar.
+- Hoy el webhook procesa en el mismo proceso, con la cola serial por chat de KovalCloud.
+
+Resultado verificado:
+- Levanta con un comando (`./jg dev` o `./jg up`). El servidor no tiene `make`, por eso se agregó `./jg`.
+- `/health` responde `{db: ok, redis: ok}` directo y vía nginx.
+- Responden la web pública, el login y el panel (con redirección al login si no hay sesión).
+- `prisma migrate deploy` corre sin migraciones pendientes y el *seed* es idempotente en dev y en prod.
+- 79 pruebas en verde (17 suites); tipos y lint limpios en backend y frontend.
+- Las imágenes de producción compilan y arrancan con *healthcheck* sano.
+- KovalCloud quedó intacto: mismos contenedores, mismas horas de arranque y 0 reinicios.
+
+## Ajustes al plan por las decisiones de la Etapa 0
+
+- **Etapa 3 (landing) y Etapa 4 (bot):** leen `showConsultationPrice` y `consultationPrice`. Con el interruptor apagado presentan la asesoría inicial como gratuita o no muestran cobro; encendido, muestran el valor configurado. La edición se hace en la Etapa 5 (Configuración).
+- **Etapa 4:** el Inbox, la descarga y validación de adjuntos y la transcripción de notas de voz ya están hechos. Queda conectar el flujo del bot en el punto marcado en `webhook.processor.ts`.
+- **Etapa 5:** el Inbox ya existe. Faltan los leads, la configuración (con el interruptor de precio), los usuarios y la **anonimización por ADMIN** (Ley 1581): borra nombre, correo y teléfono del lead o contacto, conserva `Consent` con `phoneHash` y la supresión, y queda auditada.
+- **Etapa 6:** el importador exige Origen y Autorización. Los lotes sin soporte documental para JurisGlobal quedan `UNVERIFIED` y solo admiten campañas `OPT_IN` (confirmación) antes de cualquier marketing. Topes iniciales: 1/día, 2/semana y 250/día.
+
+## Etapa 2 · API de leads y modelo de datos
+
+**Qué se construye**
+- Prisma: `Motivo`, `Lead`, `LeadNote`, `Consent`, `Contact` (mínimo: teléfono, nombre, fuente y baja).
+- Semilla con:
+  - los motivos Tránsito, Cartera, Deudas y Otro;
+  - los textos de autorización v1 a nombre de **JurisGlobal**;
+  - los ajustes `advisory.price` y `notify.emails`.
+- `common/phone.ts`: E.164 para Colombia, adaptado de `KC/be/src/orders/phone.ts`, con pruebas.
+- `POST /api/public/leads`:
+  - DTO validado (nombre, teléfono, correo, `motivoId` activo y dos autorizaciones obligatorias);
+  - *rate limit* en Redis;
+  - captcha opcional;
+  - *upsert* por teléfono (actualiza, incrementa `submissionCount` y `lastOrigin`);
+  - un `Consent` por autorización con `textVersion`, `textSnapshot` y evidencia (IP y UA);
+  - todo en una sola transacción;
+  - evento `lead.created` / `lead.updated`.
+- `LeadsService.submit()` es el **mismo servicio** que usará el chatbot, con canal = WHATSAPP.
+- `notifications/`: cola `mail` con correo de lead nuevo, reintentos y plantilla sobria sin datos de más.
+- `GET /api/public/form-config`: motivos activos y textos de autorización vigentes.
+
+**Terminado cuando**
+- Las pruebas cubren: alta nueva, duplicado por teléfono (actualiza sin duplicar), correo inválido, motivo inactivo, autorización faltante (400), normalización de los formatos `300…`, `+57 300…`, `57300…` y `0300…`, y un `Consent` guardado con el texto exacto.
+- Con `curl`, el lead aparece en la BD y el correo llega al buzón configurado.
+- Superar el *rate limit* devuelve 429.
+
+## Etapa 3 · Landing y formulario
+
+**Qué se construye**
+- Landing *mobile-first* con:
+  - perfil de la firma, servicios y modalidades (virtual y presencial);
+  - CTA y botón wa.me (`WHATSAPP_DISPLAY_NUMBER`);
+  - lema y cierre (ESP §2);
+  - botones de 44 px como mínimo;
+  - español de Colombia.
+- Formulario conectado a `form-config` y `public/leads`:
+  - las dos autorizaciones con enlaces a `/privacidad`, `/terminos` y `/cookies` (páginas provisionales);
+  - estados de envío y error;
+  - página de gracias.
+- Revisión de redacción según la ESP §11: sin promesas de resultado y "sin costo" solo si `advisory.isFree`.
+- Metadatos SEO básicos, favicon y logo (pendiente recibir el archivo).
+
+**Terminado cuando**
+- Un envío desde el celular crea el lead con origen WEB y dos `Consent`, y llega el correo.
+- Lighthouse en móvil: accesibilidad ≥ 90 y sin errores de consola.
+- Los textos de autorización dicen JurisGlobal y se toman de la configuración, no del código.
+- No aparecen los datos de contacto de relleno (ESP §2), o quedan marcados como provisionales en variables.
+
+## Etapa 4 · Chatbot de WhatsApp (Cloud API)
+
+**Qué se construye**
+- `whatsapp/cloud-api.client.ts`:
+  - texto, interactivos `button` y `list`, plantilla, marcar como leído y descarga de media;
+  - versión de Graph tomada de una variable.
+- Antes de codificar se verifican en la documentación vigente de Meta la versión de Graph, los límites de botones y listas y el formato de los estados.
+- `webhook.controller.ts`:
+  - GET de verificación **estricto** (`hub.mode=subscribe` y `hub.verify_token === WHATSAPP_VERIFY_TOKEN`);
+  - POST con HMAC obligatorio sobre `rawBody`;
+  - responde 200 de inmediato;
+  - recorre **todos** los `entry`/`changes` y encola en `wa-inbound` y `wa-status`;
+  - deduplica por `waMessageId @unique`;
+  - logger que oculta datos personales.
+- Prisma: `Conversation` y `Message`.
+- `chatbot/flow.ts`: máquina de estados pura (`GREETING → ASK_CONSENT → ASK_NAME → ASK_EMAIL → ASK_MOTIVO → CONFIRM → DONE`), además de `DECLINED` y el modo de edición en `CONFIRM`.
+  - El teléfono se toma del chat.
+  - El consentimiento se pide con botones Acepto / No acepto y se guarda con su `wamid`.
+  - Si el número ya tiene lead, se actualiza.
+- STOP:
+  - palabras clave configurables;
+  - registra la baja en `Contact`, confirma al usuario y deja de enviar marketing;
+  - el bot sigue respondiendo si la persona escribe de nuevo.
+- Fuera del flujo: Gemini con `model-fallback.ts` (copiado de KovalCloud) y un esquema Zod `{reply, backToStep}`.
+  - El *prompt* prohíbe dar asesoría jurídica y prometer resultados, tiempos o precios cerrados.
+  - Si fallan todos los modelos, responde un texto fijo y vuelve al paso.
+- Sesión de 3 h y *handover* (adaptado de `KC/be/src/meta-whatsapp/chat-session.ts` y `chats/handover.ts`).
+- Herramienta de desarrollo: un *quick tunnel* propio para registrar el webhook en Meta.
+
+**Terminado cuando**
+- Pruebas unitarias:
+  - todas las transiciones del flujo;
+  - correo inválido → vuelve a pedirlo;
+  - "No acepto" → mensaje de cierre sin pedir datos;
+  - STOP en cualquier paso;
+  - HMAC inválido → no procesa;
+  - webhook duplicado → se procesa una sola vez;
+  - verificación GET con un token incorrecto → 403.
+- Prueba real con el número de JurisGlobal: una conversación completa crea el lead con origen WHATSAPP, `Consent` y notificación por correo.
+- Una pregunta fuera del flujo recibe una respuesta breve y el bot vuelve al formulario.
+- Con un modelo inexistente configurado como principal, el fallback funciona.
+
+## Etapa 5 · Panel de administración
+
+**Qué se construye**
+- Autenticación adaptada de KovalCloud:
+  - login con TOTP;
+  - revocación por cambio de contraseña;
+  - modo sudo para acciones sensibles (exportar, borrar, lanzar campañas);
+  - roles ADMIN y ASESOR con *deny-by-default*;
+  - sesión con cookie httpOnly o JWT, según la pregunta 8;
+  - script para crear el primer ADMIN.
+- Shell del panel: layout, Sidebar y TopBar adaptados con la marca.
+- **Leads**:
+  - listado con filtros (motivo, estado, origen, fechas) y búsqueda;
+  - paginación del lado del servidor;
+  - detalle con consentimientos, notas, estado y responsable;
+  - exportar CSV en UTF-8 con BOM (para Excel), auditado.
+- Tiempo real: Socket.io con evento `lead:new` y alerta sonora.
+- **Configuración**: motivos (CRUD y orden), precio y gratuidad de la asesoría, textos del bot, textos de autorización (cada cambio crea una versión nueva), correos de notificación, usuarios, mi cuenta y 2FA.
+- Conversaciones (si se aprueba la pregunta 11): historial de solo lectura y pausa o reanudación del bot.
+- `AuditLog` para cambios de estado, exportaciones y configuración.
+
+**Terminado cuando**
+- Un ASESOR no puede entrar a Configuración, Usuarios ni Exportar (pruebas de guards).
+- Un JWT emitido antes de un cambio de contraseña es rechazado.
+- Con 2FA activo, el login sin código falla.
+- El flujo completo funciona: llega un lead → aparece en vivo → se asigna → se agrega una nota → pasa a CONTACTADO → se exporta el CSV con filtros → la exportación queda en la auditoría.
+- Cambiar el texto de autorización genera una nueva `textVersion` y los consentimientos anteriores conservan el texto antiguo.
+
+## Etapa 6 · Envíos masivos
+
+**Qué se construye**
+- **Primero se valida el cumplimiento.** Se confirman los valores iniciales con el texto vigente de la Ley 2300 de 2023 (art. 3 y art. 5, parágrafos 2 y 3; resultado preliminar en `00` §4.2) y se dejan documentados.
+- Prisma: `ContactImport`, `MessageTemplate`, `Campaign`, `CampaignMessage`, `SendWindow`, `Holiday`; `Contact` completo.
+- **Importador**:
+  - xlsx/csv con alias de columnas (adaptado de `KC/be/src/restaurants/menu-spreadsheet.ts`) y limpieza de BOM;
+  - E.164 y deduplicación contra la base;
+  - origen declarado **obligatorio** por importación y autorización por fila o por lote;
+  - reporte por fila y plantilla descargable.
+- **Contactos**: listado, bajas, alta y baja manual, supresión a pedido del titular (si se aprueba la pregunta 14).
+- **Plantillas**: sincronización paginada desde Graph, vista previa, mapeo de variables y detección de la opción de baja (sin ella no se puede lanzar).
+- **Cumplimiento**:
+  - `send-window.ts` (`isWithinSendWindow`, `nextOpening`), adaptado de `business-hours.ts`;
+  - semilla de festivos de Colombia con pruebas para el año en curso y el siguiente;
+  - editor de ventanas, adaptado de `ScheduleCards.tsx`;
+  - CRUD de festivos;
+  - tope por contacto y límite diario en `Setting`.
+- **Envío** (diseño en `01` §2):
+  - *dispatcher* cada 60 s;
+  - cola `campaign-send` con *limiter* y jitter;
+  - revalidación antes de cada envío;
+  - glosario de errores de Meta (a partir de la idea de `DJ/O/meta_errors.py`, corregido);
+  - backoff solo para infraestructura y 429;
+  - pausa automática si la calidad pasa a RED o hay un error de cuenta;
+  - 131050 → baja.
+- Estados monótonos por webhook; embudo y errores más frecuentes por campaña; CSV de destinatarios.
+- Una respuesta a una campaña marca `repliedAt` y entra al bot.
+- **Modo *dry-run***: simula envíos sin llamar a Meta para validar ritmo y ventanas (idea de `DJ/O/management/commands/simular_masivo.py`).
+
+**Terminado cuando**
+- Pruebas unitarias:
+  - ventana (bordes de apertura y cierre, sábado, domingo, festivo trasladado);
+  - `nextOpening` desde el viernes 19:01 → sábado 08:00;
+  - tope por contacto;
+  - baja excluida al armar y al enviar;
+  - orden monótono de estados (un `delivered` tardío no pisa un `read`);
+  - clasificación de errores (131047 ≠ "saldo").
+- *Dry-run* de 2.000 contactos con el reloj simulado: nada sale fuera de la ventana, se respeta el límite diario, el resto continúa al día hábil siguiente y no hay duplicados.
+- **Campaña de prueba real** a un grupo pequeño de números internos con una plantilla aprobada:
+  - respeta el horario;
+  - el panel muestra enviado, entregado y leído;
+  - responder STOP da de baja al número y la siguiente campaña lo excluye (`SKIPPED: OPTED_OUT`);
+  - responder otra cosa entra al flujo del bot.
+- Una campaña programada para un domingo no envía hasta el lunes a las 07:00.
+
+## Etapa 7 · Despliegue, pruebas y ajustes
+
+**Qué se construye**
+- Hostname de pruebas en Cloudflare (decisión: *Public Hostname* en el túnel existente), con una regla que exime `/meta/webhook` del *challenge*.
+  - **Ojo:** el `cloudflared` del túnel existente corre dentro de la red Docker de KovalCloud. Desde ahí, `localhost:8088` apunta al propio contenedor, no al VPS.
+  - Opciones:
+    - (a) Exponer nginx de JurisGlobal en la IP del *gateway* Docker (`NGINX_BIND`) y apuntar el hostname a esa IP.
+    - (b) Conectar el `cloudflared` de KovalCloud también a `jurisglobal_net`. Exige tocar el compose de KovalCloud.
+    - (c) Un conector `cloudflared` propio de JurisGlobal en otro túnel de la misma cuenta. Es lo recomendado por aislamiento.
+  - La decisión queda pendiente.
+- Migración del número de WhatsApp desde KovalCloud: cambiar la URL del webhook en la app de Meta sin dejar a KovalCloud recibiendo mensajes de ese número. Si la app de Meta es compartida, la URL del webhook es por app, así que hay que coordinarlo.
+- `.env` de producción con secretos nuevos, sin reutilizar ninguno de KovalCloud.
+- `prisma migrate deploy` como parte del despliegue.
+- Backups: `scripts/backup_db.sh` sin secretos en el archivo, cron diario, retención y **prueba de restauración**.
+- Endurecimiento:
+  - nginx con `limit_req` en `/api/public/*` y `/meta/webhook`, y cabeceras de seguridad;
+  - Cloudflare WAF;
+  - logs con redacción de datos personales y rotación.
+- Webhook de Meta apuntando al dominio de pruebas; suscripción a `messages` y a los estados.
+- Revisión final de textos: legales con nombre y NIT (pendientes ESP §13.1-2), datos de contacto reales (§13.3), precio (§13.4) y promesas de resultado (§11).
+- *Checklist* de cambio a dominio y correo definitivos solo por variables de entorno (§13.5).
+
+**Terminado cuando**
+- La instancia responde por HTTPS en el dominio de pruebas.
+- Prueba de humo completa: formulario web → lead → correo; chat de WhatsApp → lead; campaña de prueba dentro del horario; STOP.
+- KovalCloud sigue funcionando sin cambios: `docker ps`, su dominio responde y sus volúmenes no se tocaron.
+- El backup restaura correctamente en una BD temporal.
+- Existe una lista de pendientes de contenido para publicar (ESP §13), con responsable.
