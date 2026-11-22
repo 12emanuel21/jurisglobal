@@ -6,8 +6,8 @@ import { formatCop, usePublicConfig } from '@/lib/public-config';
 /**
  * Bloque de la consulta inicial (ESP §10.2), leído en vivo de GET /api/public/config:
  * - showConsultationPrice = true y hay valor: muestra el precio en pesos.
- * - Interruptor apagado (o configuración no disponible): llamado neutro a solicitar una valoración,
- *   sin afirmar "gratis" ni mostrar un valor que la configuración no autoriza.
+ * - Interruptor apagado (o configuración no disponible): oferta de valoración jurídica gratis con
+ *   el socio fundador (texto aprobado por JurisGlobal), sin mostrar un valor que la configuración no autoriza.
  */
 export function ConsultationOffer() {
   const state = usePublicConfig();
@@ -40,10 +40,19 @@ export function ConsultationOffer() {
         </>
       ) : (
         <>
-          <p className="mt-4 font-serif text-2xl font-bold leading-snug sm:text-3xl">Solicita la valoración inicial de tu caso</p>
-          <p className="mt-3 text-sm leading-relaxed text-white/80">
-            Cuéntanos tu situación y un asesor te contactará para revisar tu caso y explicarte las opciones y sus condiciones.
+          <h2 className="mt-4 font-serif text-2xl font-bold leading-snug text-[#ca9e3d] sm:text-3xl">¡VALORACIÓN JURÍDICA GRATIS!</h2>
+          <p className="mt-3 text-base font-semibold leading-snug text-white sm:text-lg">
+            Tu problema merece ser escuchado. Tu tranquilidad merece una solución.
           </p>
+          <p className="mt-3 text-sm leading-relaxed text-white/80">
+            Escríbenos y recibe atención virtual y personalizada de nuestro abogado socio fundador, Ronaldo Jiménez.
+          </p>
+          <p className="mt-4">
+            <span className="inline-flex items-center rounded-full bg-[#14532d]/60 px-3 py-1 text-xs font-semibold text-[#86efac] ring-1 ring-inset ring-[#22c55e]/30">
+              Primer paso sin costo
+            </span>
+          </p>
+          <p className="mt-4 text-sm font-medium tracking-wide text-[#ca9e3d]">JURISGLOBAL · Tu tranquilidad, nuestra misión.</p>
         </>
       )}
 

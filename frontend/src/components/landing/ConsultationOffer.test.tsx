@@ -16,26 +16,31 @@ describe('ConsultationOffer (precio dinámico de la asesoría inicial)', () => {
     expect(screen.getByRole('link', { name: 'Agendar mi asesoría' })).toHaveAttribute('href', '#contacto');
   });
 
-  it('interruptor apagado: llamado neutro, sin precio y sin afirmar "gratis"', async () => {
+  it('interruptor apagado: valoración gratis en bloques separados, sin precio', async () => {
     mockApi(makeConfig({ showConsultationPrice: false, consultationPrice: 100000 }));
     render(<ConsultationOffer />);
-    expect(await screen.findByText('Solicita la valoración inicial de tu caso')).toBeInTheDocument();
-    const block = screen.getByTestId('consultation-offer');
-    expect(block).not.toHaveTextContent('$');
-    expect(block).not.toHaveTextContent(/gratis|sin costo|gratuit/i);
-    expect(screen.getByRole('link', { name: 'Solicitar valoración' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '¡VALORACIÓN JURÍDICA GRATIS!' })).toBeInTheDocument();
+    expect(screen.getByText('Tu problema merece ser escuchado. Tu tranquilidad merece una solución.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Escríbenos y recibe atención virtual y personalizada de nuestro abogado socio fundador, Ronaldo Jiménez.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Primer paso sin costo')).toBeInTheDocument();
+    expect(screen.getByText('JURISGLOBAL · Tu tranquilidad, nuestra misión.')).toBeInTheDocument();
+    expect(screen.getByTestId('consultation-offer')).not.toHaveTextContent('$');
+    expect(screen.getByRole('link', { name: 'Solicitar valoración' })).toHaveAttribute('href', '#contacto');
+    expect(screen.getByText('Atención virtual en todo el país · presencial en Barranquilla')).toBeInTheDocument();
   });
 
   it('encendido pero sin valor configurado: no inventa un precio', async () => {
     mockApi(makeConfig({ showConsultationPrice: true, consultationPrice: null }));
     render(<ConsultationOffer />);
-    expect(await screen.findByText('Solicita la valoración inicial de tu caso')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '¡VALORACIÓN JURÍDICA GRATIS!' })).toBeInTheDocument();
     expect(screen.getByTestId('consultation-offer')).not.toHaveTextContent('$');
   });
 
   it('configuración no disponible: también cae en el llamado neutro', async () => {
     mockApi(null);
     render(<ConsultationOffer />);
-    expect(await screen.findByText('Solicita la valoración inicial de tu caso')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '¡VALORACIÓN JURÍDICA GRATIS!' })).toBeInTheDocument();
   });
 });
