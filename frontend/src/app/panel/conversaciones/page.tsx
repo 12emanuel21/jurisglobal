@@ -145,6 +145,13 @@ export default function ConversationsPage() {
     }
   };
 
+  // Enlace directo desde el detalle de un lead: /panel/conversaciones?c=<id> (sin useSearchParams: página estática)
+  const openFromUrl = useRef(openConversation);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('c');
+    if (id) void openFromUrl.current(id);
+  }, []);
+
   const sendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const id = selectedId;

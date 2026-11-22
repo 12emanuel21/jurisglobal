@@ -29,6 +29,8 @@ cp .env.example .env          # rellenar secretos (openssl rand -hex 32)
 
 `./jg` y el `Makefile` fijan siempre `-p jurisglobal`: nunca tocan los contenedores de KovalCloud,
 que corren en el mismo servidor.
+Las imágenes de desarrollo (`jurisglobal-*-dev`) y las de producción (`jurisglobal-api`, `jurisglobal-web`)
+tienen nombres distintos: `./jg build` no altera el entorno de desarrollo.
 
 | Servicio | URL (solo 127.0.0.1) |
 |---|---|
@@ -85,6 +87,19 @@ mismo `LeadsService` de la web. No clasifica, no asesora y no promete.
 - Reinicio tras 24 h sin mensajes o con «reiniciar» / «inicio».
 - Textos editables en `Setting` (`bot.*`, `consent.whatsapp.contact`, `marketing.stopKeywords`,
   `company.website`, `company.email`).
+
+## Panel de administración (Etapa 5)
+
+`/panel` (cookie httpOnly + 2FA). ADMIN ve todo; ASESOR solo Leads, Inbox y Mi cuenta.
+
+| Sección | API | Rol |
+|---|---|---|
+| Leads: resumen, filtros, detalle, estado, responsable, notas, CSV | `/api/admin/leads` | ADMIN y ASESOR |
+| Anonimizar (Ley 1581) | `POST /api/admin/leads/:id/anonymize` | ADMIN (Sudo Mode si tiene 2FA) |
+| Configuración: precio, contacto, motivos, textos del bot, horarios Ley 2300, festivos, topes | `/api/admin/settings`, `/motivos`, `/send-windows`, `/holidays` | ADMIN |
+| Usuarios | `/api/users` | ADMIN |
+
+La exportación CSV está pensada para Excel en Colombia (UTF-8 con BOM, `;`, teléfono `="+57…"`).
 
 ## Pruebas
 

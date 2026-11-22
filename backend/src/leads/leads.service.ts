@@ -145,16 +145,22 @@ export class LeadsService {
   ): Promise<SubmitLeadResult> {
     const channel = input.channel as Channel;
     return this.prisma.$transaction(async (tx) => {
-      // Contacto (base para bajas y conversaciones): se crea o se completan sus datos vacíos
+      // Contacto (base para bajas y conversaciones), por seudónimo: también encuentra al titular
+      // anonimizado que vuelve a escribir. Solo se completan datos vacíos; la baja se conserva.
       const contact = await tx.contact.upsert({
-        where: { phone },
+        where: { phoneHash: hash },
         create: { phone, phoneHash: hash, name: input.fullName, email: input.email, source: channel },
         update: {},
       });
-      if (!contact.name || !contact.email) {
+      if (!contact.phone || !contact.name || !contact.email) {
         await tx.contact.update({
           where: { id: contact.id },
-          data: { name: contact.name ?? input.fullName, email: contact.email ?? input.email },
+          data: {
+            phone: contact.phone ?? phone,
+            name: contact.name ?? input.fullName,
+            email: contact.email ?? input.email,
+            ...(contact.phone ? {} : { anonymizedAt: null }),
+          },
         });
       }
       if (channel === Channel.WHATSAPP) {

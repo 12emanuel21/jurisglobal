@@ -1,14 +1,14 @@
 /**
  * RBAC en el frontend (solo UX: la autorización real la aplica el backend).
- * - ADMIN (socios): todo el panel, configuración, masivos y anonimización.
- * - ASESOR (equipo): leads, notas e inbox.
+ * - ADMIN (socios): todo el panel, configuración, usuarios, masivos y anonimización.
+ * - ASESOR (equipo): leads, notas, exportación, inbox y su cuenta.
  */
 export type UserRole = 'ADMIN' | 'ASESOR';
 
 export const ROLE_LABELS: Record<UserRole, string> = { ADMIN: 'Administrador', ASESOR: 'Asesor' };
 
 /** Rutas del panel solo para ADMIN */
-const ADMIN_ONLY_PREFIXES = ['/panel/campanas', '/panel/contactos', '/panel/configuracion', '/panel/usuarios'];
+const ADMIN_ONLY_PREFIXES = ['/panel/masivos', '/panel/configuracion', '/panel/usuarios'];
 
 export const PANEL_HOME = '/panel';
 

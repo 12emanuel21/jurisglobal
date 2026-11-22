@@ -8,7 +8,9 @@ services:
   redis:
     ports: ["127.0.0.1:56379:6379"]
 
+  # Imágenes de desarrollo con nombre propio: `./jg build` (producción) ya no las sobrescribe
   api:
+    image: jurisglobal-api-dev
     build:
       target: dev
     restart: "no"
@@ -21,6 +23,7 @@ services:
       - uploads:/app/uploads
 
   web:
+    image: jurisglobal-web-dev
     build:
       target: dev
     restart: "no"

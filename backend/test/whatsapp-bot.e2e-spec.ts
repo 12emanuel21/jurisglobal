@@ -147,7 +147,6 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
       WHATSAPP_PHONE_NUMBER_ID: PHONE_ID,
       GOOGLE_GENERATIVE_AI_API_KEY: 'clave-de-prueba',
       LEAD_NOTIFICATION_EMAIL: 'equipo@jurisglobal.test',
-      NEXT_PUBLIC_CONTACT_EMAIL: 'contacto@jurisglobal.test',
     });
     resetEnvCache();
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -274,6 +273,8 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
   });
 
   it('2 · «No acepto»: sin lead, comparte los canales institucionales y vuelve a empezar', async () => {
+    await prisma.setting.update({ where: { key: 'company.email' }, data: { value: 'contacto@jurisglobal.test' } });
+    await prisma.setting.update({ where: { key: 'company.phone' }, data: { value: '300 123 4567' } });
     await say('Hola');
     await tap('consent:no', 'No acepto');
 
@@ -281,6 +282,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     expect(last().body).toContain('Sin tu autorización no podemos registrar tus datos');
     expect(last().body).toContain('Web: http://localhost:8088');
     expect(last().body).toContain('Correo: contacto@jurisglobal.test');
+    expect(last().body).toContain('Teléfono: 300 123 4567');
     expect(await prisma.lead.count()).toBe(0);
     const refusal = await prisma.consent.findFirstOrThrow({ where: { phoneHash: phoneHash(PHONE) } });
     expect(refusal).toMatchObject({ granted: false, phone: null, leadId: null, channel: 'WHATSAPP' });

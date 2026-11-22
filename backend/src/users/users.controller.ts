@@ -14,6 +14,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UpdateUserPasswordDto } from './dto/update-user-password.dto';
 import { UpdateOwnPasswordDto } from './dto/update-own-password.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 /** Gestión de usuarios del panel: solo ADMIN (el ASESOR solo cambia su propia contraseña) */
 @Controller('users')
@@ -45,6 +46,11 @@ export class UsersController {
     const accessToken = await this.users.changeOwnPassword(user.id, dto, sudoToken);
     res.cookie(SESSION_COOKIE, accessToken, sessionCookieOptions());
     return { ok: true };
+  }
+
+  @Patch(':id')
+  update(@CurrentUser() actor: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserDto) {
+    return this.users.update(actor, id, dto);
   }
 
   @Patch(':id/status')

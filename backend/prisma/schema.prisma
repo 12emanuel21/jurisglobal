@@ -98,11 +98,12 @@ model Motivo {
 model Lead {
   id              String     @id @default(uuid())
   fullName        String
-  /// Deduplicación por teléfono (ESP §5, §6.3): un lead por número
-  phone           String     @unique
+  /// Deduplicación por teléfono (ESP §5, §6.3): un lead por número. null = anonimizado (Ley 1581)
+  phone           String?    @unique
   /// Seudónimo del teléfono: se conserva tras anonimizar (trazabilidad con Consent y bajas)
   phoneHash       String
-  email           String
+  /// null = anonimizado
+  email           String?
   motivoId        String
   motivo          Motivo     @relation(fields: [motivoId], references: [id])
   /// Primer canal por el que llegó y último por el que volvió a enviar
@@ -288,7 +289,8 @@ enum ContactConsentStatus {
 
 model Contact {
   id              String               @id @default(uuid())
-  phone           String               @unique
+  /// null = anonimizado: queda el seudónimo (phoneHash) con su estado de baja
+  phone           String?              @unique
   phoneHash       String               @unique
   name            String?
   email           String?

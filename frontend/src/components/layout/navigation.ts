@@ -1,4 +1,4 @@
-import { LayoutDashboard, MessagesSquare, UserCog, type LucideIcon } from 'lucide-react';
+import { Megaphone, MessagesSquare, Settings, UserCog, Users, ClipboardList, type LucideIcon } from 'lucide-react';
 import { canAccessPanelPath } from '@/lib/roles';
 
 export interface NavItem {
@@ -7,13 +7,13 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-/**
- * Navegación del panel (fuente única para Sidebar y TopBar). Las secciones de leads, contactos,
- * campañas y configuración se agregan en las etapas 5 y 6.
- */
+/** Navegación del panel (fuente única para Sidebar y TopBar); se filtra por rol */
 const ALL_ITEMS: NavItem[] = [
-  { label: 'Inicio', href: '/panel', icon: LayoutDashboard },
-  { label: 'Conversaciones', href: '/panel/conversaciones', icon: MessagesSquare },
+  { label: 'Leads', href: '/panel', icon: ClipboardList },
+  { label: 'Inbox', href: '/panel/conversaciones', icon: MessagesSquare },
+  { label: 'Masivos', href: '/panel/masivos', icon: Megaphone },
+  { label: 'Configuración', href: '/panel/configuracion', icon: Settings },
+  { label: 'Usuarios', href: '/panel/usuarios', icon: Users },
   { label: 'Mi cuenta', href: '/panel/cuenta', icon: UserCog },
 ];
 

@@ -114,6 +114,7 @@ const BOT_SETTINGS = [
   'consultationPrice',
   'company.website',
   'company.email',
+  'company.phone',
 ] as const;
 type BotSettings = { [K in (typeof BOT_SETTINGS)[number]]: (typeof SETTING_DEFAULTS)[K] };
 
@@ -477,8 +478,16 @@ export class ChatbotService {
 
   private declinedText(s: BotSettings): string {
     const website = s['company.website'] || loadEnv().PUBLIC_BASE_URL;
-    const email = s['company.email'] || process.env.NEXT_PUBLIC_CONTACT_EMAIL?.trim() || null;
-    return [s['bot.declined'], '', `🌐 Web: ${website}`, ...(email ? [`✉️ Correo: ${email}`] : [])].join('\n');
+    // Canales institucionales de Configuración (Etapa 5); los vacíos no se muestran
+    const email = s['company.email']?.trim();
+    const phone = s['company.phone']?.trim();
+    return [
+      s['bot.declined'],
+      '',
+      `🌐 Web: ${website}`,
+      ...(email ? [`✉️ Correo: ${email}`] : []),
+      ...(phone ? [`📞 Teléfono: ${phone}`] : []),
+    ].join('\n');
   }
 
   private motivos(): Promise<MotivoOption[]> {

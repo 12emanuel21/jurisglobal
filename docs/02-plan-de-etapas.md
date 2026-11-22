@@ -246,9 +246,67 @@ Pendiente para la prueba real (Etapa 4/7):
 - Una pregunta fuera del flujo recibe una respuesta breve y el bot vuelve al formulario.
 - Con un modelo inexistente configurado como principal, el fallback funciona.
 
-## Etapa 5 · Panel de administración
+## Etapa 5 · Panel de administración — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
 
-**Qué se construye**
+Lo construido:
+- **Panel con la marca:** fondo claro, azul marino y dorado, *mobile-first* y botones de 44 px o más.
+  - Menú: Leads (inicio), Inbox, Masivos, Configuración, Usuarios y Mi cuenta.
+  - El ASESOR solo ve Leads, Inbox y Mi cuenta; las rutas de ADMIN lo redirigen a Leads y la API le responde 403.
+- **Leads** (`/api/admin/leads`, ADMIN y ASESOR):
+  - Tarjetas por estado (Nuevos, Contactados, Agendados, Cerrados) que también sirven de filtro.
+  - Búsqueda por nombre, teléfono o correo y filtros por estado (acepta `nuevo|contactado|agendado|cerrado`), motivo, origen (`web|whatsapp`) y fechas en hora de Colombia.
+  - Paginación en el servidor.
+  - Tiempo real por Socket.io: un lead nuevo o un recontacto muestra un aviso discreto y refresca sin recargar; los cambios hechos en el panel (`lead:changed`) refrescan en silencio.
+  - Detalle en panel lateral, con enlace directo `?lead=`:
+    - datos, envíos y recontactos;
+    - historial de `Consent` (canal, fecha, versión y texto aceptado) e insignia de baja;
+    - botón «Abrir chat en el Inbox» (`/panel/conversaciones?c=`);
+    - estado, responsable (usuarios activos) y notas internas con autor y fecha.
+  - Todo cambio queda en `AuditLog`.
+- **Exportación CSV** con los filtros activos, pensada para Excel en Colombia:
+  - UTF-8 con BOM y separador `;`;
+  - teléfono como `="+57…"`, para que Excel no pierda el «+»;
+  - protección contra inyección de fórmulas;
+  - tope de 10.000 filas;
+  - auditada sin guardar el texto buscado.
+- **Anonimización Ley 1581** (solo ADMIN; con 2FA activo pide Sudo Mode), confirmada escribiendo `ANONIMIZAR`:
+  - Nombre → «Titular anonimizado». Correo, teléfono y UTM → `null`.
+  - El contenido de las notas se reemplaza.
+  - En `Consent` se borran el teléfono y la evidencia identificable (IP, user-agent, texto escrito); se conservan la finalidad, el canal, la versión, el texto, la fecha y `phoneHash`.
+  - El contacto queda solo con el seudónimo, en baja, y el seudónimo entra a `Suppression` (motivo `ANONYMIZED`).
+  - Se eliminan la conversación de WhatsApp y sus adjuntos.
+  - Migración `lead_contact_anonymization`: `Lead.phone`, `Lead.email` y `Contact.phone` pasan a ser anulables. Los contactos ahora se buscan por `phoneHash`, así un titular anonimizado que vuelve a escribir genera un lead nuevo sin romper índices y su baja se mantiene.
+- **Configuración** (solo ADMIN: `/api/admin/settings`, `/motivos`, `/send-windows`, `/holidays`):
+  - **Asesoría y contacto:**
+    - interruptor `showConsultationPrice` y valor en COP (no se puede encender sin valor);
+    - correos del aviso de lead;
+    - correo y teléfono institucionales: el bot los usa en el mensaje de «No acepto», en lugar de `NEXT_PUBLIC_CONTACT_EMAIL`.
+  - **Motivos:** crear, renombrar (máx. 20 caracteres, el límite de un botón de WhatsApp), reordenar y activar o desactivar. Siempre queda al menos uno activo y se reflejan al instante en `/api/public/config` y en el bot.
+  - **Textos del chatbot:** saludo, rechazo, cierre y confirmación de STOP. El servidor rechaza «gratis» y las promesas.
+  - **Horarios** por día, validados contra la Ley 2300: L–V 7:00–19:00, sábado 8:00–15:00, domingo sin envíos.
+  - **Festivos** por año: agregar, quitar (los manuales se borran; los oficiales se desactivan para que el seed no los recree) y restaurar.
+  - **Topes de envío:** diario y semanal por contacto (el semanal no puede ser menor que el diario) y límite diario global.
+- **Usuarios** (solo ADMIN): listar, crear, cambiar rol, activar o desactivar y restablecer contraseña (con Sudo Mode si el ADMIN tiene 2FA).
+  - No se puede desactivar ni degradar al último ADMIN activo.
+  - Nadie puede desactivar su propia cuenta.
+- **Masivos:** vista provisional «Próximamente — Etapa 6», solo para ADMIN.
+- **Infraestructura de desarrollo:**
+  - las imágenes de desarrollo se llaman `jurisglobal-api-dev` y `jurisglobal-web-dev`, porque `./jg build` sobrescribía la imagen de desarrollo con la de producción;
+  - `./jg lint` incluye ESLint del backend.
+
+Diferencias con el plan original:
+- Los **textos de autorización** (`consent.*`) no se editan desde el panel. Cambiarlos exige revisión jurídica y subir la versión; queda para cuando los abogados entreguen el texto final.
+- El aviso de lead nuevo es visual, como pediste, sin alerta sonora.
+- Exportar no exige Sudo Mode: el ASESOR puede exportar y la exportación queda auditada.
+
+Pruebas:
+- Backend:
+  - 166 unitarias (21 suites), entre ellas CSV, filtros y reglas de Configuración;
+  - 60 de integración contra PostgreSQL real, de las cuales 16 son nuevas del panel: filtros, paginación, estado, responsable, notas, CSV, anonimización (incluido el 403 del ASESOR y el Sudo Mode), configuración, motivos, horarios, festivos y usuarios, con 403 para el ASESOR.
+- Frontend: 42 de Vitest. Las 15 nuevas cubren el listado y los filtros, el tiempo real, el detalle (estado, responsable y notas), la confirmación de la anonimización, el interruptor de precio y los motivos.
+- Navegador real (Chromium por nginx en `127.0.0.1:8088`): 25 comprobaciones como ADMIN en escritorio y ASESOR en celular, más las capturas del filtro en 3 anchos. Las cuentas y los datos de prueba se borraron.
+
+**Qué se construye** (plan original)
 - Autenticación adaptada de KovalCloud:
   - login con TOTP;
   - revocación por cambio de contraseña;

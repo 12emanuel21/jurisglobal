@@ -12,10 +12,11 @@ import { ConversationsModule } from './conversations/conversations.module';
 import { SettingsModule } from './settings/settings.module';
 import { MailModule } from './mail/mail.module';
 import { LeadsModule } from './leads/leads.module';
+import { AdminModule } from './admin/admin.module';
 
 /**
- * Etapa 2: + leads, configuración pública y avisos por correo. Panel de leads, chatbot y masivos
- * llegan en las etapas 4–6 (docs/02-plan-de-etapas.md).
+ * Etapa 5: + panel de administración (leads, configuración dinámica y usuarios). Los masivos
+ * llegan en la Etapa 6 (docs/02-plan-de-etapas.md).
  */
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { LeadsModule } from './leads/leads.module';
     SettingsModule,
     MailModule,
     LeadsModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

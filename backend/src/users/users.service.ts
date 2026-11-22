@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
@@ -58,10 +59,54 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * El panel nunca se queda sin administrador: no se desactiva ni se degrada al último ADMIN activo.
+   * (Se consulta al cambiar estado o rol; las cuentas propias tampoco se desactivan.)
+   */
+  private async assertNotLastActiveAdmin(target: { id: string; role: Role; isActive: boolean }) {
+    if (target.role !== Role.ADMIN || !target.isActive) return;
+    const others = await this.prisma.user.count({
+      where: { role: Role.ADMIN, isActive: true, id: { not: target.id } },
+    });
+    if (!others) {
+      throw new BadRequestException('Debe quedar al menos un administrador activo: crea o activa otro ADMIN antes');
+    }
+  }
+
+  async update(actor: AuthenticatedUser, targetId: string, dto: { name?: string; role?: Role }) {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, role: true, isActive: true },
+    });
+    if (!target) throw new NotFoundException('Usuario no encontrado');
+    if (dto.role && dto.role !== target.role && target.role === Role.ADMIN) await this.assertNotLastActiveAdmin(target);
+    const updated = await this.prisma.user.update({
+      where: { id: targetId },
+      data: { ...(dto.name ? { name: dto.name } : {}), ...(dto.role ? { role: dto.role } : {}) },
+      select: userSelect,
+    });
+    if (dto.role && dto.role !== target.role) {
+      // El rol se lee de la BD en cada petición; los sockets abiertos se cierran para reconectar con el nuevo
+      this.realtime.disconnectUser(targetId, 'Tu rol cambió: vuelve a iniciar sesión');
+      await this.audit.record({
+        userId: actor.id,
+        action: 'USER_ROLE_CHANGED',
+        entity: 'User',
+        entityId: targetId,
+        data: { from: target.role, to: dto.role },
+      });
+    }
+    return updated;
+  }
+
   async updateStatus(actor: AuthenticatedUser, targetId: string, isActive: boolean) {
     if (targetId === actor.id) throw new ForbiddenException('No puedes cambiar el acceso de tu propia cuenta');
-    const target = await this.prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, role: true, isActive: true },
+    });
     if (!target) throw new NotFoundException('Usuario no encontrado');
+    if (!isActive) await this.assertNotLastActiveAdmin(target);
     const updated = await this.prisma.user.update({ where: { id: targetId }, data: { isActive }, select: userSelect });
     // Revocación inmediata: los JWT fallan en la siguiente petición; los sockets se cierran ya
     if (!isActive) this.realtime.disconnectUser(targetId);

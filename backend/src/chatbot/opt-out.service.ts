@@ -40,8 +40,9 @@ export class OptOutService {
     const optOut = { consentStatus: 'OPTED_OUT' as const, optedOutAt: now, optOutChannel: req.channel };
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Por seudónimo: la baja también alcanza a un contacto ya anonimizado
       const contact = await tx.contact.upsert({
-        where: { phone: req.phone },
+        where: { phoneHash: hash },
         create: { phone: req.phone, phoneHash: hash, source: 'WHATSAPP', ...optOut },
         update: optOut,
       });
@@ -95,7 +96,7 @@ export class OptOutService {
 
     this.logger.log(`🚫 Baja registrada por ${req.channel} (${maskPhone(req.phone)})`);
     this.realtime.emitToPanel('conversation:updated', { conversationId: req.conversationId });
-    if (result.leadId) this.realtime.emitToPanel('lead:updated', { leadId: result.leadId, isNew: false });
+    if (result.leadId) this.realtime.emitToPanel('lead:changed', { leadId: result.leadId });
     return result;
   }
 }

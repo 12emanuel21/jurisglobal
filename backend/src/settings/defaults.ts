@@ -52,6 +52,7 @@ export const SETTING_DEFAULTS = {
   /** Canales institucionales que el bot comparte (vacíos: PUBLIC_BASE_URL y NEXT_PUBLIC_CONTACT_EMAIL) */
   'company.website': null as string | null,
   'company.email': null as string | null,
+  'company.phone': null as string | null,
 
   /** Autorizaciones del formulario web (ESP §5). Cambiar el texto = subir la versión */
   'consent.web.privacy': {

@@ -39,7 +39,7 @@ export default function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: 
                 aria-current={active ? 'page' : undefined}
                 className={`tap flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-[var(--brand-navy)]/10 text-[var(--brand-navy)] dark:bg-white/10 dark:text-white'
+                    ? 'bg-navy text-[#fff] shadow-sm [&_svg]:text-gold dark:bg-white/10'
                     : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200'
                 }`}
               >
@@ -49,7 +49,7 @@ export default function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: 
             );
           })}
         </nav>
-        <div className="border-t border-gray-200 p-4 text-[11px] text-gray-400 dark:border-slate-800 dark:text-slate-500">
+        <div className="border-t border-gray-200 p-4 text-[11px] font-medium text-gold-700 dark:border-slate-800 dark:text-gold-400">
           Tu tranquilidad, nuestra misión.
         </div>
       </aside>
