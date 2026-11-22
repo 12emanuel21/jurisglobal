@@ -1,5 +1,7 @@
 import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
+import { RealIpThrottlerGuard } from '../common/real-ip-throttler.guard';
+import { clientIpOf } from '../common/client-ip';
 import type { Request } from 'express';
 import { loadEnv } from '../config/env';
 import { SubmitLeadDto } from './dto/submit-lead.dto';
@@ -21,7 +23,7 @@ export class LeadsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(RealIpThrottlerGuard)
   @Throttle({ default: { limit: () => loadEnv().LEADS_RATE_LIMIT, ttl: 60_000 } })
   async submit(@Body() dto: SubmitLeadDto, @Req() req: Request) {
     if (dto.website) return LEAD_RECEIVED_RESPONSE; // honeypot: bot de spam, se descarta en silencio
@@ -34,7 +36,7 @@ export class LeadsController {
       motivo: dto.motivo,
       channel: 'WEB',
       consents: { privacyAndTerms: dto.privacyAndTerms, contactAndDataProcessing: dto.contactAndDataProcessing },
-      evidence: { ip: req.ip, userAgent: req.get('user-agent')?.slice(0, 300) ?? null },
+      evidence: { ip: clientIpOf(req), userAgent: req.get('user-agent')?.slice(0, 300) ?? null },
       utm: dto.utm ? { ...dto.utm } : undefined,
     });
     return LEAD_RECEIVED_RESPONSE;

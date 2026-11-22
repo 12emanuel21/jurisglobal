@@ -73,3 +73,12 @@ export function webhookValues(payload: any): any[] {
     .map((c) => c?.value)
     .filter(Boolean);
 }
+
+/** Cambios con su campo (messages, phone_number_quality_update…) */
+export function webhookChanges(payload: any): Array<{ field: string; value: any }> {
+  const entries: any[] = Array.isArray(payload?.entry) ? payload.entry : [];
+  return entries
+    .flatMap((entry) => (Array.isArray(entry?.changes) ? entry.changes : []))
+    .filter((c) => c?.value)
+    .map((c) => ({ field: typeof c.field === 'string' ? c.field : 'messages', value: c.value }));
+}

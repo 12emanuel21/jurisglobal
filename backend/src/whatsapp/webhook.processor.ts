@@ -9,11 +9,12 @@ import { maskPhone } from '../common/redact';
 import { isUniqueViolation } from '../prisma/prisma-errors';
 import { WhatsAppCloudApi } from './cloud-api.client';
 import { ChatQueue } from './chat-queue';
-import { parseInboundMessage, webhookValues, type ParsedInbound } from './inbound-parse';
+import { parseInboundMessage, webhookChanges, type ParsedInbound } from './inbound-parse';
 import { describeChatMedia, storeChatMedia, type StoredChatMedia } from './media';
 import { isStatusUpgrade, parseMetaStatus } from './message-status';
 import { ChatbotService } from '../chatbot/chatbot.service';
 import { CampaignTracking } from '../campaigns/campaign-tracking';
+import { QualityGuard } from '../campaigns/quality-guard';
 
 /** Mensajes con más antigüedad que esto se descartan (anti-replay; idea del módulo Django) */
 const MAX_MESSAGE_AGE_MS = 30 * 60 * 1000;
@@ -36,6 +37,7 @@ export class WebhookProcessor {
     private readonly ai: AiService,
     private readonly chatbot: ChatbotService,
     private readonly campaigns: CampaignTracking,
+    private readonly quality: QualityGuard,
   ) {}
 
   /** Procesa en segundo plano (el webhook ya respondió 200); los errores se registran sin datos personales */
@@ -54,7 +56,12 @@ export class WebhookProcessor {
 
   async handlePayload(payload: any): Promise<void> {
     const ownPhoneId = loadEnv().WHATSAPP_PHONE_NUMBER_ID;
-    for (const value of webhookValues(payload)) {
+    for (const { field, value } of webhookChanges(payload)) {
+      // Calidad del número (llega por WABA, sin phone_number_id): RED pausa las campañas activas
+      if (field === 'phone_number_quality_update') {
+        await this.quality.onWebhook(value);
+        continue;
+      }
       // Solo el número de JurisGlobal (la app de Meta puede tener otros números suscritos)
       if (ownPhoneId && value?.metadata?.phone_number_id !== ownPhoneId) continue;
 

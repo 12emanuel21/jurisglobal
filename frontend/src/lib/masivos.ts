@@ -200,6 +200,14 @@ export interface CampaignInput {
   dryRun?: boolean;
 }
 
+/** Última calidad del número reportada por Meta (Graph o webhook) */
+export interface WhatsAppQuality {
+  rating: string;
+  source: 'GRAPH' | 'WEBHOOK';
+  at: string;
+  event?: string;
+}
+
 export const CAMPAIGN_STATUS_LABEL: Record<CampaignStatus, string> = {
   DRAFT: 'Borrador',
   SCHEDULED: 'Programada',
@@ -246,6 +254,7 @@ export function pausedReasonLabel(reason: string | null): string {
     NOT_CONFIGURED: 'Pausada: falta configurar WhatsApp Cloud API (o usa el modo simulación)',
     NO_WINDOW: 'Pausada: no hay ningún horario de envío habilitado',
     REPEATED_ERRORS: 'Pausada por precaución: muchos errores seguidos',
+    QUALITY_RED: 'Pausada automáticamente: Meta marcó la calidad del número en ROJO',
   };
   return `${base[kind] ?? 'Pausada'}${code ? ` (código ${code})` : ''}`;
 }
@@ -283,7 +292,7 @@ export const masivosApi = {
   deleteTemplate: (id: string) => apiJson<{ ok: true }>(`/admin/templates/${id}`, { method: 'DELETE' }),
   syncTemplates: () => apiJson<{ created: number; updated: number; total: number }>('/admin/templates/sync', { method: 'POST' }),
 
-  campaigns: () => apiJson<{ items: CampaignSummary[] }>('/admin/campaigns'),
+  campaigns: () => apiJson<{ items: CampaignSummary[]; quality: WhatsAppQuality | null }>('/admin/campaigns'),
   campaign: (id: string) => apiJson<CampaignDetail>(`/admin/campaigns/${id}`),
   recipients: (id: string, params: { status?: RecipientStatus | ''; page?: number }) =>
     apiJson<{ items: Recipient[]; total: number; page: number; pageSize: number }>(`/admin/campaigns/${id}/recipients${qs(params)}`),

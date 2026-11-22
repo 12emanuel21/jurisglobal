@@ -6,8 +6,9 @@ import type { Env } from './config/env';
 
 /** Configuración HTTP común a main.ts y a las pruebas de integración (misma app que en producción) */
 export function configureApp(app: NestExpressApplication, env: Env) {
-  // Detrás de nginx: req.ip = IP real (X-Forwarded-For), necesario para el rate limiting
-  app.set('trust proxy', 1);
+  // Detrás de cloudflared + nginx: solo se confía en proxies de la red interna. El límite por IP y la
+  // evidencia de los leads usan common/client-ip.ts (CF-Connecting-IP > X-Real-IP > X-Forwarded-For)
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
   app.use(helmet());
   app.use(cookieParser());
 

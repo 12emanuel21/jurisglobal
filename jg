@@ -6,11 +6,16 @@ cd "$(dirname "$0")"
 
 PROD=(docker compose -p jurisglobal -f docker-compose.yml)
 DEV=(docker compose -p jurisglobal -f docker-compose.yml -f docker-compose.dev.yml)
+# El túnel de Cloudflare (perfil "tunnel") solo se levanta si hay token en .env
+TUNNEL=()
+if grep -Eq '^CLOUDFLARE_TUNNEL_TOKEN=.+' .env 2>/dev/null; then TUNNEL=(--profile tunnel); fi
 
 case "${1:-help}" in
   dev)         "${DEV[@]}" up -d --build ;;
-  up)          "${PROD[@]}" up -d --build ;;
-  down)        "${DEV[@]}" down ;;
+  up|prod)     "${PROD[@]}" "${TUNNEL[@]}" up -d --build
+               [ ${#TUNNEL[@]} -eq 0 ] && echo "ℹ️  Sin CLOUDFLARE_TUNNEL_TOKEN: el túnel no se levantó (solo 127.0.0.1:8088)" || true ;;
+  down)        "${DEV[@]}" --profile tunnel down ;;
+  smoke)       ./scripts/smoke-prod.sh ;;
   logs)        "${DEV[@]}" logs -f --tail=100 "${@:2}" ;;
   worker-logs) "${DEV[@]}" logs -f --tail=100 worker ;;
   worker-restart) "${DEV[@]}" restart worker ;;
@@ -33,7 +38,8 @@ case "${1:-help}" in
   *)
     cat <<'EOF'
 ./jg dev                 Desarrollo con hot-reload (127.0.0.1: 8088 nginx, 4100 api, 3100 web, 55432 pg, 56379 redis)
-./jg up                  Producción (imágenes compiladas; solo 127.0.0.1:8088)
+./jg up | prod           Producción (imágenes compiladas; 127.0.0.1:8088 y, con token, el túnel de Cloudflare)
+./jg smoke               Smoke test de producción (salud, cabeceras, webhook, worker, KovalCloud intacto)
 ./jg down                Detiene la instancia (conserva los datos)
 ./jg logs [servicio]     Logs
 ./jg worker-logs         Logs del worker de masivos (cola Redis)

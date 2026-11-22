@@ -1,17 +1,18 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { AlertOctagon, Plus } from 'lucide-react';
 import { btnPrimary, card, errorText, muted } from '@/components/panel/ui';
 import { formatDateTime } from '@/lib/format';
 import { usePanelEvents } from '@/lib/realtime';
-import { CAMPAIGN_STATUS_LABEL, KIND_LABEL, masivosApi, type CampaignSummary } from '@/lib/masivos';
+import { CAMPAIGN_STATUS_LABEL, KIND_LABEL, masivosApi, type CampaignSummary, type WhatsAppQuality } from '@/lib/masivos';
 import { CampaignDetail, ProgressBar, STATUS_BADGE } from './CampaignDetail';
 import { CampaignForm } from './CampaignForm';
 
 /** Lista de campañas con su avance en vivo; abre el tablero de cada una o el formulario de una nueva */
 export function CampaignsTab() {
   const [items, setItems] = useState<CampaignSummary[] | null>(null);
+  const [quality, setQuality] = useState<WhatsAppQuality | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -23,7 +24,7 @@ export function CampaignsTab() {
     let alive = true;
     masivosApi
       .campaigns()
-      .then((r) => alive && (setItems(r.items), setError(null)))
+      .then((r) => alive && (setItems(r.items), setQuality(r.quality ?? null), setError(null)))
       .catch((err: unknown) => alive && setError(errorText(err, 'No se pudieron cargar las campañas')));
     return () => {
       alive = false;
@@ -37,7 +38,7 @@ export function CampaignsTab() {
     [],
   );
 
-  usePanelEvents(['campaign:progress'], () => {
+  usePanelEvents(['campaign:progress', 'whatsapp:quality'], () => {
     if (timer.current) return;
     timer.current = setTimeout(() => {
       timer.current = null;
@@ -45,10 +46,30 @@ export function CampaignsTab() {
     }, 1000);
   });
 
-  if (openId) return <CampaignDetail id={openId} onBack={() => setOpenId(null)} />;
+  const banner = quality?.rating === 'RED' && (
+    <div role="alert" className="flex items-start gap-3 rounded-xl border-2 border-red-600 bg-[#fde8e8] p-4 text-sm text-[#7f1d1d] dark:bg-[#7f1d1d]/40 dark:text-[#fecaca]">
+      <AlertOctagon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+      <div>
+        <p className="font-semibold">Meta marcó la calidad del número de WhatsApp en ROJO: todas las campañas activas se pausaron.</p>
+        <p className="mt-1">
+          Revisa los reportes de bloqueo y spam en el administrador de WhatsApp de Meta antes de reanudar. Al reanudar, el sistema vuelve a consultar la calidad y
+          solo envía si dejó de estar en rojo. Último reporte: {formatDateTime(quality.at)} ({quality.source === 'WEBHOOK' ? 'aviso de Meta' : 'consulta a Graph'}).
+        </p>
+      </div>
+    </div>
+  );
+
+  if (openId)
+    return (
+      <div className="space-y-4">
+        {banner}
+        <CampaignDetail id={openId} onBack={() => setOpenId(null)} />
+      </div>
+    );
 
   return (
     <div className="space-y-4">
+      {banner}
       {creating ? (
         <CampaignForm
           onClose={() => setCreating(false)}

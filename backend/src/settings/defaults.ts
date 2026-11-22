@@ -20,6 +20,8 @@ export const SETTING_DEFAULTS = {
   'marketing.dailyGlobalLimit': 250,
   /** Retraso aleatorio entre envíos (ms): editable en Configuración (3–12 s por defecto) */
   'marketing.jitterMs': { min: 3000, max: 12000 },
+  /** Última calidad del número reportada por Meta (la escribe el worker o el webhook; el panel la muestra) */
+  'whatsapp.quality': null as null | { rating: string; source: 'GRAPH' | 'WEBHOOK'; at: string; event?: string },
   /** Pausa automática de campañas si Meta marca la calidad del número en rojo */
   'marketing.pauseOnQualityRed': true,
   /**

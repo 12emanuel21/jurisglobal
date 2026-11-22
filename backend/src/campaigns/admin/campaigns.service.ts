@@ -8,6 +8,7 @@ import { formatPhone } from '../../common/phone';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ACTIVE_STATUSES } from '../campaign-engine';
 import { CampaignQueue } from '../campaign-queue';
+import { QualityGuard } from '../quality-guard';
 import { CLOCK, type Clock } from '../clock';
 import { TwoFactorAuthService } from '../../auth/two-factor-auth.service';
 import { CATEGORY_LABELS, META_ERROR_LABELS, type MetaErrorCategory } from '../meta-errors';
@@ -65,6 +66,7 @@ export class CampaignsService {
     private readonly queue: CampaignQueue,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly twoFactorAuth: TwoFactorAuthService,
+    private readonly quality: QualityGuard,
   ) {}
 
   private async metricsFor(ids: string[]): Promise<Map<string, CampaignMetrics>> {
@@ -127,8 +129,11 @@ export class CampaignsService {
       take: 100,
       include: { template: { select: { name: true, language: true } } },
     });
-    const metrics = await this.metricsFor(rows.map((r) => r.id));
-    return { items: rows.map((c) => this.serialize(c, metrics.get(c.id)!)) };
+    const [metrics, quality] = await Promise.all([
+      this.metricsFor(rows.map((r) => r.id)),
+      this.settings.get('whatsapp.quality'),
+    ]);
+    return { items: rows.map((c) => this.serialize(c, metrics.get(c.id)!)), quality };
   }
 
   async detail(id: string) {
@@ -342,6 +347,7 @@ export class CampaignsService {
       { timeout: 60_000 },
     );
 
+    await this.quality.forceRecheck();
     await this.queue.schedule(campaign.id, scheduledAt ? scheduledAt.getTime() - now.getTime() : 0);
     await this.audit.record({
       userId: actor.id,
@@ -394,6 +400,7 @@ export class CampaignsService {
         startedAt: c.startedAt ?? (future ? null : now),
       },
     });
+    await this.quality.forceRecheck();
     await this.queue.schedule(id, future ? c.scheduledAt!.getTime() - now.getTime() : 0);
     await this.audit.record({
       userId: actor.id,

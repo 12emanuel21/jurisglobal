@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { clientIpOf } from '../common/client-ip';
 import { LoginThrottlerGuard } from './guards/login-throttler.guard';
 import { TwoFactorThrottlerGuard } from './guards/two-factor-throttler.guard';
 import { AsesorAccess } from './decorators/asesor-access.decorator';
@@ -21,7 +22,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const { accessToken, user } = await this.authService.login(dto, req.ip);
+    const { accessToken, user } = await this.authService.login(dto, clientIpOf(req));
     res.cookie(SESSION_COOKIE, accessToken, sessionCookieOptions());
     return { user };
   }

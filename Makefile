@@ -2,7 +2,7 @@
 PROD = docker compose -p jurisglobal -f docker-compose.yml
 DEV  = docker compose -p jurisglobal -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: help dev up down logs worker-logs ps migrate migrate-dev seed seed-prod test test-web lint build backup
+.PHONY: help dev up down smoke logs worker-logs ps migrate migrate-dev seed seed-prod test test-web lint build backup
 
 help:
 	@echo "make dev          Levanta en desarrollo (hot-reload; puertos 8088, 4100, 3100, 55432, 56379 en 127.0.0.1)"
@@ -18,11 +18,15 @@ help:
 dev:
 	$(DEV) up -d --build
 
+# Con CLOUDFLARE_TUNNEL_TOKEN en .env también levanta el túnel (perfil "tunnel")
 up:
-	$(PROD) up -d --build
+	./jg up
+
+smoke:
+	./scripts/smoke-prod.sh
 
 down:
-	$(DEV) down
+	$(DEV) --profile tunnel down
 
 logs:
 	$(DEV) logs -f --tail=100

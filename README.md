@@ -117,6 +117,16 @@ La exportación CSV está pensada para Excel en Colombia (UTF-8 con BOM, `;`, te
 - Modo simulación por campaña, o `CAMPAIGNS_FORCE_DRY_RUN=true` para todo el servidor.
 - `./jg worker-logs` muestra el log del worker.
 
+## Producción (Etapa 7)
+
+Guía paso a paso: [`docs/03-guia-despliegue-y-operacion.md`](docs/03-guia-despliegue-y-operacion.md).
+
+```bash
+./jg up      # (o ./jg prod) imágenes de producción; con CLOUDFLARE_TUNNEL_TOKEN también el túnel propio
+./jg smoke   # salud, cabeceras, webhook 403, worker en Redis y KovalCloud intacto
+./jg backup  # respaldo de PostgreSQL (backups/, 14 días)
+```
+
 ## Pruebas
 
 ```bash

@@ -69,6 +69,7 @@ describe('Etapa 6 · Masivos (integración)', () => {
     markAsRead: jest.fn(() => Promise.resolve()),
     downloadMedia: jest.fn(),
     listTemplates: jest.fn(),
+    getQualityRating: jest.fn((): Promise<string | null> => Promise.resolve('GREEN')),
   };
 
   let admin: { id: string; token: string };
@@ -166,7 +167,7 @@ describe('Etapa 6 · Masivos (integración)', () => {
 
   // ── Webhook de Meta firmado ──
   const sign = (raw: string) => `sha256=${createHmac('sha256', SECRET).update(raw).digest('hex')}`;
-  async function deliver(value: Record<string, unknown>) {
+  async function deliver(value: Record<string, unknown>, field = 'messages') {
     const raw = JSON.stringify({
       object: 'whatsapp_business_account',
       entry: [
@@ -174,8 +175,11 @@ describe('Etapa 6 · Masivos (integración)', () => {
           id: 'WABA',
           changes: [
             {
-              field: 'messages',
-              value: { messaging_product: 'whatsapp', metadata: { phone_number_id: PHONE_ID }, ...value },
+              field,
+              value:
+                field === 'messages'
+                  ? { messaging_product: 'whatsapp', metadata: { phone_number_id: PHONE_ID }, ...value }
+                  : value,
             },
           ],
         },
@@ -236,6 +240,7 @@ describe('Etapa 6 · Masivos (integración)', () => {
   beforeEach(async () => {
     await resetDatabase(prisma);
     jest.clearAllMocks();
+    cloudApi.getQualityRating.mockImplementation(() => Promise.resolve('GREEN'));
     cloudApi.sendTemplate.mockImplementation(() => Promise.resolve({ waMessageId: `wamid.camp.${++outSeq}` }));
     clock.current = TUESDAY_10AM;
     const settings = app.get(SettingsService);
@@ -743,6 +748,46 @@ describe('Etapa 6 · Masivos (integración)', () => {
         .expect(403);
       expect(res.body).toMatchObject({ message: 'SUDO_REQUIRED' });
       expect(await prisma.campaign.count()).toBe(0);
+    });
+
+    it('calidad RED en Graph (quality_rating): pausa TODAS las campañas activas y el panel lo informa', async () => {
+      await contact('DOCUMENTED');
+      const t = await template();
+      const c1 = await launch(t.id, { name: 'Primera' });
+      const c2 = await launch(t.id, { name: 'Segunda' });
+      cloudApi.getQualityRating.mockResolvedValue('RED');
+      expect(await engine.step(c1.id)).toEqual({ kind: 'done', reason: 'PAUSED:QUALITY_RED' });
+      expect(cloudApi.sendTemplate).not.toHaveBeenCalled();
+      for (const id of [c1.id, c2.id])
+        expect(await prisma.campaign.findUniqueOrThrow({ where: { id } })).toMatchObject({
+          status: 'PAUSED',
+          pausedReason: 'QUALITY_RED',
+        });
+      const list = await api().get('/admin/campaigns').set(as(admin)).expect(200);
+      expect(list.body.quality).toMatchObject({ rating: 'RED', source: 'GRAPH' });
+      expect(emit).toHaveBeenCalledWith('whatsapp:quality', { rating: 'RED' });
+
+      // Reanudar vuelve a consultar Graph: si sigue en RED, se pausa otra vez
+      await api().post(`/admin/campaigns/${c1.id}/resume`).set(as(admin)).expect(200);
+      expect(await engine.step(c1.id)).toEqual({ kind: 'done', reason: 'PAUSED:QUALITY_RED' });
+      cloudApi.getQualityRating.mockResolvedValue('GREEN');
+      await api().post(`/admin/campaigns/${c1.id}/resume`).set(as(admin)).expect(200);
+      expect(await engine.step(c1.id)).toMatchObject({ kind: 'wait', reason: 'JITTER' });
+      expect(cloudApi.sendTemplate).toHaveBeenCalledTimes(1);
+    });
+
+    it('webhook phone_number_quality_update (FLAGGED) pausa las campañas activas al instante', async () => {
+      await contact('DOCUMENTED');
+      const campaign = await launch((await template()).id);
+      await deliver(
+        { display_phone_number: '573000000000', event: 'FLAGGED', current_limit: 'TIER_1K' },
+        'phone_number_quality_update',
+      );
+      expect(await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).toMatchObject({
+        status: 'PAUSED',
+        pausedReason: 'QUALITY_RED',
+      });
+      expect(await engine.step(campaign.id)).toEqual({ kind: 'done', reason: 'INACTIVE' });
     });
 
     it('Pausar, Reanudar y Cancelar desde el panel (con auditoría)', async () => {

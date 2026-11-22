@@ -396,7 +396,7 @@ Lo construido:
 
 Diferencias con el plan original:
 - El *dispatcher* cada 60 s del diseño se reemplazó por un trabajo por campaña que se reprograma solo. Así la espera es exacta y no se encolan lotes. La revisión cada 60 s quedó como red de seguridad.
-- La pausa automática por calidad RED del número no se implementó: exige consultar `quality_rating` en Graph con credenciales reales (Etapa 7). Los errores de cuenta (por ejemplo 131048) sí pausan.
+- La pausa automática por calidad RED del número quedó para la Etapa 7 (ya implementada allí). Los errores de cuenta (por ejemplo 131048) también pausan.
 - El tope de frecuencia **difiere**, no excluye: la vista previa los muestra aparte como «ya alcanzaron su tope».
 - Sin CSV de destinatarios por ahora; el tablero los lista paginados y filtrables.
 
@@ -451,7 +451,35 @@ Pruebas:
   - responder otra cosa entra al flujo del bot.
 - Una campaña programada para un domingo no envía hasta el lunes a las 07:00.
 
-## Etapa 7 · Despliegue, pruebas y ajustes
+## Etapa 7 · Preparación de producción — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
+
+Lo construido (antes de conectar credenciales reales):
+- **Pausa automática por calidad del número (`quality_rating`):**
+  - el worker consulta `GET /{phone-number-id}?fields=quality_rating` antes de cada lote (al lanzar, al reanudar o tras más de 10 min sin dato) y cada 50 envíos reales;
+  - con `RED`, o con el aviso `phone_number_quality_update` del webhook (`FLAGGED`/`DOWNGRADE`), pausa **todas** las campañas activas con motivo `QUALITY_RED`, guarda el último dato en `Setting` `whatsapp.quality` y el panel de Masivos muestra una alerta roja;
+  - sin credenciales de Meta, en simulación o con `marketing.pauseOnQualityRed` apagado, no consulta; si Graph falla, no frena los envíos (los errores de cuenta en el envío sí pausan).
+- **Cloudflare Tunnel propio:** servicio `cloudflared` (perfil `tunnel`) en `jurisglobal_net`, apuntando a `http://nginx:80`. `./jg up` (o `./jg prod`) lo levanta solo si `CLOUDFLARE_TUNNEL_TOKEN` tiene valor; sin token avisa y no queda reiniciándose. No toca el túnel ni la red de KovalCloud.
+- **IP real detrás de Cloudflare:**
+  - nginx acepta `CF-Connecting-IP` solo desde redes internas y le pasa a la API la IP ya resuelta, sobrescribiendo `X-Forwarded-For` (el cliente no puede inyectar entradas);
+  - la API usa `common/client-ip.ts` (también ignora las cabeceras si la conexión no viene de la red interna) en el límite por IP de `POST /api/leads`, el login y el 2FA, y en la evidencia de los leads;
+  - `trust proxy` solo para redes internas.
+  - Verificado de punta a punta: con dos `CF-Connecting-IP` distintas, el visitante A recibe 429 en el sexto intento y el B sigue pasando.
+- **Endurecimiento:**
+  - nginx: `server_tokens off`, una sola copia de `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin` y `Permissions-Policy` para web y API (se ocultan las de Next/helmet), sin `X-Powered-By`, y HSTS solo cuando la visita llega por HTTPS;
+  - Next: `productionBrowserSourceMaps: false` (los `.map` responden 404);
+  - `restart: unless-stopped` en db, redis, api, worker, web, nginx y cloudflared.
+- **Guía operativa** `docs/03-guia-despliegue-y-operacion.md`: túnel y dominio, app de Meta propia y webhook, Gemini, SMTP y `NEXT_PUBLIC_*`, ADMIN definitivo con 2FA, respaldo y restauración, operación diaria y lista final.
+- **`./jg smoke`** (`scripts/smoke-prod.sh`, solo lectura): contenedores y su política de reinicio, `/api/health`, cabeceras de seguridad sin duplicados, sin source maps, webhook con firma inválida → 403, worker sano y escuchando la cola en Redis, túnel (si hay token), dominio público opcional (`PUBLIC_URL`) y KovalCloud intacto (contenedores en ejecución, redes separadas, su nginx responde).
+
+Pruebas:
+- Backend: 196 unitarias (26 suites; nuevas: IP real detrás de Cloudflare y pausa por calidad) y 86 de integración (nuevas: RED por Graph pausa todas las campañas y reanudar vuelve a consultar; RED por webhook firmado).
+- Frontend: 50 de Vitest (alerta de calidad).
+- Build de producción, `./jg up` y `./jg smoke` OK contra los contenedores de producción.
+- Respaldo con `./jg backup` y restauración probada en una base temporal (usuarios, motivos, 36 festivos y 4 migraciones), luego eliminada.
+
+Pendiente (depende de ti, ver docs/03): token del túnel y hostname, app de Meta con su webhook, credenciales reales, textos legales finales, ADMIN definitivo con 2FA y respaldo diario fuera del servidor.
+
+**Plan original de la Etapa 7**
 
 **Qué se construye**
 - Hostname de pruebas en Cloudflare (decisión: *Public Hostname* en el túnel existente), con una regla que exime `/meta/webhook` del *challenge*.

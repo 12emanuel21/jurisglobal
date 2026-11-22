@@ -23,6 +23,7 @@ import { applyOptOut } from '../compliance/opt-out-core';
 import { FLOW_RESET_MS } from '../chatbot/flow';
 import { WhatsAppApiError, WhatsAppCloudApi, WhatsAppNotConfiguredError } from '../whatsapp/cloud-api.client';
 import { CampaignQueue } from './campaign-queue';
+import { QUALITY_PAUSE_REASON, QualityGuard } from './quality-guard';
 import { CLOCK, type Clock } from './clock';
 import { PAUSE_REASON, classifyMetaError } from './meta-errors';
 import { renderBody, resolveVariables, type VariableMapping } from './template-rules';
@@ -84,6 +85,7 @@ export class CampaignEngine {
     private readonly cloudApi: WhatsAppCloudApi,
     private readonly realtime: RealtimeGateway,
     private readonly queue: CampaignQueue,
+    private readonly quality: QualityGuard,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
@@ -164,6 +166,10 @@ export class CampaignEngine {
       return 'continue';
     }
 
+    // Calidad del número en Meta (antes de un lote y cada ~50 envíos): RED pausa todas las campañas
+    if (!(campaign.dryRun || loadEnv().CAMPAIGNS_FORCE_DRY_RUN) && !(await this.quality.assertSendable()))
+      return done(`PAUSED:${QUALITY_PAUSE_REASON}`);
+
     return this.send(campaign, message, rules, now);
   }
 
@@ -200,6 +206,7 @@ export class CampaignEngine {
       await tx.contact.update({ where: { id: message.contactId }, data: { lastMarketingAt: now } });
       await this.logInInbox(tx, message, waMessageId, renderBody(template.bodyText, params), campaign, now);
     });
+    if (!dryRun) await this.quality.noteSend();
     this.emit(campaign.id);
     return wait(this.jitter(rules), 'JITTER');
   }

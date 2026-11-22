@@ -6,6 +6,7 @@ import type { CampaignDetail as Detail, CampaignPreview, ImportSummary, MassTemp
 import { ContactImporter } from './ContactImporter';
 import { CampaignForm } from './CampaignForm';
 import { CampaignDetail } from './CampaignDetail';
+import { CampaignsTab } from './CampaignsTab';
 
 const realtime = vi.hoisted(() => ({ handler: null as null | ((event: string, payload: unknown) => void) }));
 vi.mock('@/context/SudoContext', () => ({
@@ -288,5 +289,34 @@ describe('Masivos · tablero de la campaña', () => {
     });
     await waitFor(() => expect(screen.getByTestId('metric-read')).toHaveTextContent('3'), { timeout: 4000 });
     expect(callsTo(fetchMock, 'GET', '/api/admin/campaigns/c1').length).toBe(before + 1);
+  });
+});
+
+describe('Masivos · alerta de calidad del número', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('con calidad RED muestra la alerta y la campaña pausada con su motivo', async () => {
+    routeFetch({
+      'GET /api/admin/campaigns': () => ({
+        body: {
+          items: [{ ...DETAIL, status: 'PAUSED', pausedReason: 'QUALITY_RED', waitReason: null }],
+          quality: { rating: 'RED', source: 'WEBHOOK', at: '2026-11-24T15:00:00.000Z', event: 'FLAGGED' },
+        },
+      }),
+    });
+    render(<CampaignsTab />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Meta marcó la calidad del número de WhatsApp en ROJO');
+    expect(screen.getByText('Pausada')).toBeInTheDocument();
+  });
+
+  it('sin alerta cuando la calidad es verde', async () => {
+    routeFetch({
+      'GET /api/admin/campaigns': () => ({
+        body: { items: [DETAIL], quality: { rating: 'GREEN', source: 'GRAPH', at: '2026-11-24T15:00:00.000Z' } },
+      }),
+    });
+    render(<CampaignsTab />);
+    await screen.findByText('Asesoría inicial · diciembre');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

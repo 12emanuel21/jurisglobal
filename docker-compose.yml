@@ -122,6 +122,20 @@ services:
     depends_on: [web, api]
     networks: [jg_net]
 
+  # Túnel de Cloudflare PROPIO de JurisGlobal (no usa el túnel ni la red de KovalCloud). Solo arranca con
+  # el perfil "tunnel": `./jg up` lo activa si CLOUDFLARE_TUNNEL_TOKEN tiene valor; sin token no queda
+  # reiniciándose en bucle. En Cloudflare, el Public Hostname apunta a http://nginx:80.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: jurisglobal_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on: [nginx]
+    profiles: [tunnel]
+    networks: [jg_net]
+
 volumes:
   pg_data:
     name: jurisglobal_pg_data

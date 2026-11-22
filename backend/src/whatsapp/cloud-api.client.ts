@@ -216,6 +216,22 @@ export class WhatsAppCloudApi {
     );
   }
 
+  /**
+   * Calidad del número (GREEN, YELLOW, RED, UNKNOWN) según Meta: GET /{phone-number-id}?fields=quality_rating.
+   * null si no hay credenciales (simulación/desarrollo): quien llama omite el control sin fallar.
+   */
+  async getQualityRating(): Promise<string | null> {
+    if (!this.isConfigured()) return null;
+    const { base, phoneId, token } = this.config();
+    const res = await fetch(`${base}/${encodeURIComponent(phoneId)}?fields=quality_rating`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok)
+      throw new WhatsAppApiError(data?.error?.message ?? `Graph API ${res.status}`, res.status, data?.error?.code);
+    return typeof data?.quality_rating === 'string' ? data.quality_rating.toUpperCase() : 'UNKNOWN';
+  }
+
   /** ¿Hay credenciales para leer las plantillas de la cuenta (WABA)? */
   canSyncTemplates(): boolean {
     const env = loadEnv();
