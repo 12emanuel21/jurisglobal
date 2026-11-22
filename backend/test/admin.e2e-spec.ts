@@ -568,18 +568,18 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
         .post('/users')
         .set(as(admin))
         .send({
-          name: 'Jeremy Arenillas',
-          email: 'Jeremy@JurisGlobal.test',
+          name: 'Laura Martínez',
+          email: 'Laura.Martinez@JurisGlobal.test',
           password: 'clave-segura-1',
           role: 'ASESOR',
         })
         .expect(201);
-      expect(created.body).toMatchObject({ email: 'jeremy@jurisglobal.test', role: 'ASESOR', isActive: true });
+      expect(created.body).toMatchObject({ email: 'laura.martinez@jurisglobal.test', role: 'ASESOR', isActive: true });
       expect(created.body).not.toHaveProperty('passwordHash');
       await api()
         .post('/users')
         .set(as(admin))
-        .send({ name: 'Otro', email: 'jeremy@jurisglobal.test', password: 'clave-segura-1', role: 'ASESOR' })
+        .send({ name: 'Otro', email: 'laura.martinez@jurisglobal.test', password: 'clave-segura-1', role: 'ASESOR' })
         .expect(409);
 
       const promoted = await api()
@@ -611,7 +611,7 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
       await api().patch(`/users/${admin.id}/status`).set(as(admin)).send({ isActive: false }).expect(403);
 
       // Con otro ADMIN activo sí se puede degradar
-      const second = await makeUser('socio2@jurisglobal.test', Role.ADMIN, 'Jeremy Socio');
+      const second = await makeUser('socio2@jurisglobal.test', Role.ADMIN, 'Segundo Socio');
       await api().patch(`/users/${second.id}`).set(as(admin)).send({ role: 'ASESOR' }).expect(200);
       await api().patch(`/users/${second.id}`).set(as(admin)).send({ role: 'ADMIN' }).expect(200);
       await api().patch(`/users/${admin.id}`).set(as(second)).send({ role: 'ASESOR' }).expect(200);

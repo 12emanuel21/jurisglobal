@@ -22,7 +22,7 @@ const VALUES = ['Tranquilidad', 'Confianza', 'Compromiso', 'Prevención', 'Excel
 
 const PARTNERS = [
   { initials: 'RJ', name: 'Ronaldo Jiménez Acuña', role: 'Gerente General y Representante Legal' },
-  { initials: 'JA', name: 'Jeremy Arenillas', role: 'Gerente Administrativo y Financiero' },
+  { initials: 'EV', name: 'Emanuel Ricardo Vargas Villarreal', role: 'Desarrollador y Soporte Técnico' },
 ];
 
 export function WhyUs() {
@@ -65,7 +65,7 @@ export function WhyUs() {
 
         <div className="mt-14">
           <h3 className="text-center text-sm font-semibold uppercase tracking-[0.18em] text-gold-700">Socios fundadores</h3>
-          <ul className="mx-auto mt-6 grid max-w-3xl gap-4 sm:grid-cols-2">
+          <ul aria-label="Socios fundadores" className="mx-auto mt-6 grid max-w-3xl gap-4 sm:grid-cols-2">
             {PARTNERS.map((p) => (
               <li key={p.name} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5">
                 <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-navy font-serif text-lg font-bold text-gold-400 ring-2 ring-gold/40" aria-hidden="true">
