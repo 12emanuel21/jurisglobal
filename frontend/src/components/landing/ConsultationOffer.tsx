@@ -45,7 +45,7 @@ export function ConsultationOffer() {
             Tu problema merece ser escuchado. Tu tranquilidad merece una solución.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-white/80">
-            Escríbenos y recibe atención virtual y personalizada de nuestro abogado socio fundador, Ronaldo Jiménez.
+            Escríbenos y recibe atención virtual y personalizada de nuestro abogado socio fundador, <strong>Dr.Ronaldo Jiménez</strong>.
           </p>
           <p className="mt-4">
             <span className="inline-flex items-center rounded-full bg-[#14532d]/60 px-3 py-1 text-xs font-semibold text-[#86efac] ring-1 ring-inset ring-[#22c55e]/30">

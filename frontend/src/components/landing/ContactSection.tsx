@@ -10,10 +10,10 @@ export function ContactSection() {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-gold-700">Contacto</p>
           <h2 id="contacto-title" className="mt-2 font-serif text-3xl font-bold text-navy sm:text-4xl">
-            Déjanos tus datos y un asesor te contactará
+            Déjanos tus datos y un analista juridico se contactará contigo
           </h2>
           <p className="mt-4 leading-relaxed text-slate-700">
-            Cuéntanos brevemente el motivo de tu consulta. Un asesor de JurisGlobal revisará tu solicitud y se comunicará contigo por llamada
+            Cuéntanos brevemente el motivo de tu consulta. Un analista juridico de JurisGlobal revisará tu solicitud y se comunicará contigo por llamada
             o correo para explicarte el siguiente paso.
           </p>
           <ul className="mt-8 space-y-4 text-sm text-slate-700">
@@ -25,14 +25,7 @@ export function ContactSection() {
                 </a>
               </li>
             )}
-            {site.contactPhone && (
-              <li className="flex items-center gap-3">
-                <Phone className="h-5 w-5 text-navy" aria-hidden="true" />
-                <a href={`tel:${site.contactPhone.replace(/[^\d+]/g, '')}`} className="font-semibold text-navy underline-offset-4 hover:underline">
-                  {site.contactPhone}
-                </a>
-              </li>
-            )}
+            
             {site.contactEmail && (
               <li className="flex items-center gap-3">
                 <Mail className="h-5 w-5 text-navy" aria-hidden="true" />

@@ -23,11 +23,10 @@ export function Hero() {
             {site.slogan}
           </p>
           <h1 id="hero-title" className="mt-5 font-serif text-4xl font-bold leading-tight tracking-tight text-navy sm:text-5xl">
-            Acompañamiento jurídico y financiero, con trato humano.
+            Estamos de tu lado construyendo soluciones continuas.
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-700">
-            <strong className="font-semibold text-navy">Somos tu aliado, no tu adversario.</strong> Te orientamos con claridad para que
-            tomes decisiones informadas sobre tus multas de tránsito, tus deudas o tu cartera, y recuperes la tranquilidad.
+            <strong className="font-semibold text-navy">Te brindamos orientación y acompañamiento jurídico y financiero,</strong> con profesionalismo, compromiso y calidad humana, para ayudarte a resolver tus dificultades, proteger tus intereses, recuperar el control de tus obligaciones y encontrar nuevas oportunidades para avanzar con tranquilidad
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
