@@ -18,7 +18,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link href="/" className="tap flex items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold" aria-label="JurisGlobal, inicio">
-          <Logo />
+          <Logo priority />
         </Link>
 
         <nav aria-label="Principal" className="hidden items-center gap-1 md:flex">

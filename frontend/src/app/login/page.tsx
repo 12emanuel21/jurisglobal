@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { LoginError, useAuth } from '@/context/AuthContext';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
-import { BrandMark } from '@/components/layout/BrandMark';
+import { Logo } from '@/components/brand/Logo';
 import { PANEL_HOME } from '@/lib/roles';
 
 export default function LoginPage() {
@@ -60,7 +60,7 @@ function LoginForm() {
       </div>
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <BrandMark />
+          <Logo variant="vertical" tone="auto" className="w-44" priority />
           <p className="text-sm text-slate-400">Panel de administración</p>
         </div>
         {error && (

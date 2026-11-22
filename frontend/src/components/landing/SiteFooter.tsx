@@ -35,7 +35,7 @@ export function SiteFooter() {
     <footer className="border-t-4 border-gold bg-[#081729] pb-24 pt-12 text-sm text-white/75 md:pb-12">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 sm:px-6 md:grid-cols-3">
         <div>
-          <Logo tone="dark" showTagline />
+          <Logo variant="vertical" tone="dark" className="w-52" />
           <p className="mt-4">{site.slogan}</p>
           <p className="mt-2">Barranquilla · atención virtual en todo el país y presencial en Barranquilla.</p>
         </div>
