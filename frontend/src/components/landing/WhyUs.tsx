@@ -22,7 +22,7 @@ const VALUES = ['Tranquilidad', 'Confianza', 'Compromiso', 'Prevención', 'Excel
 
 const PARTNERS = [
   { initials: 'RJ', name: 'Ronaldo Jiménez Acuña', role: 'Gerente General y Representante Legal' },
-  { initials: 'EV', name: 'Emanuel Ricardo Vargas Villarreal', role: 'Desarrollador y Soporte Técnico' },
+  { initials: 'EV', name: 'Emanuel Ricardo Vargas Villarreal', role: 'Gerente Desarrollador y Soporte Técnico' },
 ];
 
 export function WhyUs() {
@@ -33,12 +33,31 @@ export function WhyUs() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-gold-700">Por qué JurisGlobal</p>
             <h2 id="nosotros-title" className="mt-2 font-serif text-3xl font-bold text-navy sm:text-4xl">
-              Somos tu aliado, no tu adversario
+              ¿Por qué elegir JURISGLOBAL?
             </h2>
-            <p className="mt-4 leading-relaxed text-slate-700">
-              JurisGlobal es una firma jurídica y financiera de Barranquilla con cobertura nacional. Acompañamos a personas, comerciantes y
-              empresas en crecimiento que buscan recuperar el control de su situación con un servicio cercano, confiable y accesible.
-            </p>
+            <div className="mt-5 max-w-prose space-y-4 leading-relaxed text-slate-700" data-testid="why-us-text">
+              <p className="border-l-4 border-[#ca9e3d] pl-4 font-serif text-xl font-semibold leading-snug text-navy">
+                Porque detrás de cada problema hay una persona que merece ser escuchada y una solución que vale la pena construir.
+              </p>
+              <p>
+                En JURISGLOBAL somos una firma jurídica y financiera con sede en Barranquilla y cobertura nacional. Acompañamos a personas,
+                comerciantes, emprendedores y empresas en crecimiento con soluciones integrales, atención personalizada y un compromiso genuino con su
+                bienestar.
+              </p>
+              <p>
+                Entendemos que enfrentar una deuda, un conflicto legal o una dificultad empresarial puede generar incertidumbre y preocupación. Por eso,
+                nuestro trabajo va más allá de prestar un servicio: te escuchamos, comprendemos tu situación y ponemos nuestro conocimiento y
+                experiencia a tu disposición para encontrar alternativas que protejan tus intereses y te permitan avanzar.
+              </p>
+              <p>
+                Nos caracterizamos por brindar una atención cercana, transparente, confiable y accesible, porque creemos que todos merecen orientación
+                profesional y la oportunidad de encontrar una solución.
+              </p>
+              <div className="rounded-2xl bg-navy px-5 py-4">
+                <p className="font-semibold text-white">No tienes que enfrentar tus dificultades sin orientación. Estamos aquí para acompañarte.</p>
+                <p className="mt-1 text-sm font-medium tracking-wide text-[#ca9e3d]">JURISGLOBAL — Tu tranquilidad, nuestra misión.</p>
+              </div>
+            </div>
             <ul className="mt-6 flex flex-wrap gap-2" aria-label="Nuestros valores">
               {VALUES.map((v) => (
                 <li key={v} className="rounded-full border border-gold/50 bg-white px-3 py-1 text-xs font-semibold text-navy">

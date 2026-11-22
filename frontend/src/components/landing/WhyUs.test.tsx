@@ -8,8 +8,17 @@ describe('WhyUs · socios fundadores', () => {
     const cards = within(screen.getByRole('list', { name: 'Socios fundadores' })).getAllByRole('listitem');
     expect(cards.map((c) => c.textContent)).toEqual([
       'RJRonaldo Jiménez AcuñaGerente General y Representante Legal',
-      'EVEmanuel Ricardo Vargas VillarrealDesarrollador y Soporte Técnico',
+      'EVEmanuel Ricardo Vargas VillarrealGerente Desarrollador y Soporte Técnico',
     ]);
     expect(document.body).not.toHaveTextContent(/Jeremy|Arenillas/);
+  });
+
+  it('el texto de «¿Por qué elegir JURISGLOBAL?» va en bloques separados, con el lema al final', () => {
+    render(<WhyUs />);
+    expect(screen.getByRole('heading', { level: 2, name: '¿Por qué elegir JURISGLOBAL?' })).toBeInTheDocument();
+    const blocks = screen.getByTestId('why-us-text').querySelectorAll('p');
+    expect(blocks).toHaveLength(6);
+    expect(blocks[0]).toHaveTextContent(/^Porque detrás de cada problema/);
+    expect(blocks[5]).toHaveTextContent('JURISGLOBAL — Tu tranquilidad, nuestra misión.');
   });
 });
