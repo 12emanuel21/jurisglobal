@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CampaignMsgStatus, MsgStatus } from '@prisma/client';
+import { MsgStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { AiService } from '../ai/ai.service';
@@ -13,6 +13,7 @@ import { parseInboundMessage, webhookValues, type ParsedInbound } from './inboun
 import { describeChatMedia, storeChatMedia, type StoredChatMedia } from './media';
 import { isStatusUpgrade, parseMetaStatus } from './message-status';
 import { ChatbotService } from '../chatbot/chatbot.service';
+import { CampaignTracking } from '../campaigns/campaign-tracking';
 
 /** Mensajes con más antigüedad que esto se descartan (anti-replay; idea del módulo Django) */
 const MAX_MESSAGE_AGE_MS = 30 * 60 * 1000;
@@ -34,6 +35,7 @@ export class WebhookProcessor {
     private readonly cloudApi: WhatsAppCloudApi,
     private readonly ai: AiService,
     private readonly chatbot: ChatbotService,
+    private readonly campaigns: CampaignTracking,
   ) {}
 
   /** Procesa en segundo plano (el webhook ya respondió 200); los errores se registran sin datos personales */
@@ -130,6 +132,21 @@ export class WebhookProcessor {
       throw error;
     }
 
+    // ¿Responde a una campaña? (repliedAt, botón de baja o de aceptación del opt-in)
+    const reply = await this.campaigns
+      .onInbound({
+        phone: waId,
+        waMessageId: msg.waMessageId,
+        contextId: msg.contextId,
+        type: msg.type,
+        text: msg.text,
+        interactiveId: msg.interactiveId,
+      })
+      .catch((error) => {
+        this.logger.error(`No se pudo asociar la respuesta a una campaña: ${(error as Error).message}`);
+        return null;
+      });
+
     // Una nota de voz cuenta como AUDIO aunque no se haya podido guardar (sin descarga = sin texto)
     const mediaKind = media ? (media.stored?.kind ?? (msg.media?.type === 'audio' ? 'AUDIO' : 'UNSUPPORTED')) : null;
     await this.chatbot.handleInbound({
@@ -142,6 +159,7 @@ export class WebhookProcessor {
       mediaKind,
       transcript: mediaKind === 'AUDIO' ? (transcript ?? '') : null,
       timestamp: msg.timestamp,
+      optOutButton: reply?.buttonRole === 'OPT_OUT',
     });
   }
 
@@ -189,29 +207,7 @@ export class WebhookProcessor {
       });
     }
 
-    // Masivos (Etapa 6): mismo orden monótono sobre el destinatario de la campaña
-    const target = await this.prisma.campaignMessage.findUnique({
-      where: { waMessageId },
-      select: { id: true, status: true },
-    });
-    if (target && ['SENT', 'DELIVERED', 'READ', 'QUEUED', 'PENDING'].includes(target.status)) {
-      const current = target.status === 'QUEUED' || target.status === 'PENDING' ? null : (target.status as MsgStatus);
-      if (isStatusUpgrade(current, next)) {
-        const at = new Date();
-        await this.prisma.campaignMessage.update({
-          where: { id: target.id },
-          data: {
-            status: next as CampaignMsgStatus,
-            ...(next === 'DELIVERED'
-              ? { deliveredAt: at }
-              : next === 'READ'
-                ? { readAt: at }
-                : next === 'FAILED'
-                  ? { failedAt: at, errorCode, errorDetail }
-                  : { sentAt: at }),
-          },
-        });
-      }
-    }
+    // Masivos: mismo orden monótono sobre el destinatario de la campaña (131050 = baja automática)
+    await this.campaigns.onStatus(waMessageId, next, errorCode, errorDetail);
   }
 }

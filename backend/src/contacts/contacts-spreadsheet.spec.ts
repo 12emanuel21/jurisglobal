@@ -37,6 +37,7 @@ describe('Importador de contactos (xlsx/csv)', () => {
   it('exige las columnas Teléfono, Origen y Autorización', () => {
     const r = parseContactSpreadsheet(csv('Nombre,Telefono\nAna,3001234567\n'), 'x.csv');
     expect(r.rows).toEqual([]);
+    expect(r.fatal).toBe(true);
     expect(r.errors[0]).toMatch(/Faltan columnas obligatorias: Origen, Autorización/);
   });
 
@@ -47,12 +48,27 @@ describe('Importador de contactos (xlsx/csv)', () => {
       ),
       'x.csv',
     );
-    expect(r.errors).toEqual(['Fila 2: el Teléfono "123" no es válido', 'Fila 3: el Origen está vacío']);
+    expect(r.errors).toEqual([
+      'Fila 2: el Teléfono "123" no es un celular colombiano válido',
+      'Fila 3: el Origen está vacío',
+    ]);
     expect(r.rows).toHaveLength(1);
     expect(r.warnings).toEqual([
-      'Fila 4: el correo "malo@" no es válido y se ignoró',
       'Fila 5: teléfono repetido (ya está en la fila 4); se ignora',
+      'Fila 4: el correo "malo@" no es válido y se ignoró',
     ]);
+    expect(r).toMatchObject({ fatal: false, invalidRows: 2, duplicateRows: 1 });
+  });
+
+  it('formatos de teléfono colombianos: +57, 57, 0057, con espacios o guiones; rechaza fijos y otros países', () => {
+    const r = parseContactSpreadsheet(
+      csv(
+        'telefono,origen,autorizacion\n+57 300-123-4567,B,si\n573011112222,B,si\n0057 302 333 4444,B,si\n(303) 555 6666,B,si\n6014567890,B,si\n+1 305 555 0100,B,si\n30012345,B,si\n',
+      ),
+      'x.csv',
+    );
+    expect(r.rows.map((x) => x.phone)).toEqual(['573001234567', '573011112222', '573023334444', '573035556666']);
+    expect(r.invalidRows).toBe(3);
   });
 
   it('lee xlsx (los teléfonos numéricos no pierden dígitos)', () => {

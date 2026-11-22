@@ -77,6 +77,19 @@ function zonedToUtc(y: number, m: number, d: number, minute: number, timeZone: s
   return new Date(guess - (asLocal - guess));
 }
 
+/** 00:00 local del día de `date` (instante UTC) */
+export function startOfLocalDay(date: Date, timeZone = DEFAULT_TIMEZONE): Date {
+  const p = localParts(date, timeZone);
+  return zonedToUtc(p.year, p.month, p.day, 0, timeZone);
+}
+
+/** 00:00 local del día siguiente al de `date` */
+export function startOfNextLocalDay(date: Date, timeZone = DEFAULT_TIMEZONE): Date {
+  const p = localParts(date, timeZone);
+  const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1));
+  return zonedToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, timeZone);
+}
+
 /** ¿Se puede enviar en este instante? Festivo o día deshabilitado = no. */
 export function isWithinSendWindow(
   windows: SendWindowRule[],

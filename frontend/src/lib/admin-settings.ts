@@ -14,6 +14,8 @@ export interface EditableSettings {
   'marketing.maxPerContactPerDay': number;
   'marketing.maxPerContactPerWeek': number;
   'marketing.dailyGlobalLimit': number;
+  /** Retraso aleatorio entre envíos de masivos, en ms */
+  'marketing.jitterMs': { min: number; max: number };
 }
 
 export interface AdminMotivo {

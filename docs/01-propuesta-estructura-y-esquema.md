@@ -18,7 +18,7 @@ Versiones (iguales a KovalCloud, respuesta 13; se conservó su `package-lock`):
 |---|---|---|
 | **Inbox multimedia (entra al MVP)** | Bandeja de conversaciones de WhatsApp con respuesta manual, pausa/reanudación del bot (handover de 12 h), imágenes, notas de voz con transcripción (Gemini) y PDFs. Reutiliza el Inbox de KovalCloud sin tenant ni Baileys. Los adjuntos se validan por *magic bytes* y se sirven solo con sesión (nginx no publica `uploads/`). | `backend/src/conversations/*`, `backend/src/whatsapp/{media,webhook.processor}.ts`, `frontend/src/app/panel/conversaciones/page.tsx` |
 | **Interruptor del precio de la asesoría** | `Setting.showConsultationPrice` (booleano, apagado por defecto) + `Setting.consultationPrice` (COP, `null` mientras no se confirme). Apagado = la web y el bot la presentan sin costo; encendido = muestran el valor. | `backend/src/settings/defaults.ts` (lo consumen las etapas 3 y 4) |
-| Topes de masivos | 1 por día y 2 por semana por contacto, y 250 por día en total. Editables. | `Setting` `marketing.*` |
+| Topes de masivos | 1 por día y 2 por semana (móvil) por contacto, y 250 por día en total; jitter 3–12 s. Editables. Se difieren al siguiente día hábil (Etapa 6). | `Setting` `marketing.*` |
 | Base sin soporte documental | `Contact.consentStatus`: `UNVERIFIED` / `DOCUMENTED` / `CONFIRMED` / `OPTED_OUT`. `Campaign.kind`: `MARKETING` solo a `DOCUMENTED`/`CONFIRMED`; `OPT_IN` (confirmación) solo a `UNVERIFIED`. El importador exige las columnas Origen y Autorización. | `schema.prisma`, `backend/src/contacts/contacts-spreadsheet.ts` |
 | Anonimización (ADMIN) | `Lead.anonymizedAt` / `Contact.anonymizedAt`. `Lead.phone`, `Lead.email`, `Contact.phone` y `Consent.phone` son anulables (Etapa 5) y se conserva `phoneHash` (HMAC con clave del servidor); los contactos se buscan por `phoneHash`. Las bajas viven en `Suppression(phoneHash)`, que sobrevive a la anonimización. | `schema.prisma`, `backend/src/common/crypto.ts` |
 | Sesión | Cookie `jg_session` `httpOnly`, `SameSite=Lax`, `Secure` en producción. 2FA (TOTP cifrado AES-256-GCM) y modo sudo reutilizados de KovalCloud. | `backend/src/auth/*`, `frontend/src/context/AuthContext.tsx` |
@@ -272,6 +272,9 @@ model Message {
 }
 
 // ───────── Masivos ─────────
+// Etapa 6 (implementado): MessageTemplate suma purpose/footerText/buttons/source y metaId opcional;
+// Campaign suma dryRun/nextRunAt/waitReason; CampaignMessage suma notBefore/optedOutAt.
+// Ver backend/prisma/schema.prisma y docs/02 (Etapa 6) para el estado vigente.
 enum ContactSource { IMPORT WEB WHATSAPP MANUAL }
 
 model Contact {

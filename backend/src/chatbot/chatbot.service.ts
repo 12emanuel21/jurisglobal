@@ -67,6 +67,8 @@ export interface BotInbound {
   /** Transcripción de la nota de voz ('' si no se pudo) */
   transcript: string | null;
   timestamp: Date | null;
+  /** Tocó el botón de baja de una plantilla de campaña (equivale a STOP) */
+  optOutButton?: boolean;
 }
 
 type Reply =
@@ -159,14 +161,14 @@ export class ChatbotService {
     const typed = msg.mediaKind === 'AUDIO' ? (msg.transcript ?? '') : msg.text;
 
     // STOP: se honra siempre, también con el bot pausado (en ese caso sin respuesta automática)
-    if (typed && msg.mediaKind !== 'AUDIO' && isStopCommand(typed, s['marketing.stopKeywords'])) {
+    if (msg.optOutButton || (typed && msg.mediaKind !== 'AUDIO' && isStopCommand(typed, s['marketing.stopKeywords']))) {
       await this.optOut.register({
         conversationId: conv.id,
         conversationContactId: conv.contactId,
         phone: conv.waId,
         text: typed,
         waMessageId: msg.waMessageId,
-        channel: 'KEYWORD',
+        channel: msg.optOutButton ? 'TEMPLATE_BUTTON' : 'KEYWORD',
       });
       if (!paused) await this.send(conv, [text(s['bot.optOutConfirmation'])]);
       return;

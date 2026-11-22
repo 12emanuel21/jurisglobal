@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { toE164 } from '../common/phone';
+import { isColombianMobile, toColombianPhone } from '../common/phone';
 
 /**
  * Importador de contactos para masivos (adaptado de restaurants/menu-spreadsheet.ts de KovalCloud).
@@ -27,9 +27,24 @@ export interface ContactImportRow {
 
 export interface ParsedContactSpreadsheet {
   rows: ContactImportRow[];
+  /** Problemas por fila (o el problema del archivo si `fatal`), máx. 50 en la lista */
   errors: string[];
   warnings: string[];
+  /** El archivo no se puede importar (formato, columnas, tamaño): no se toca la base */
+  fatal: boolean;
+  /** Filas descartadas por datos inválidos y por teléfono repetido dentro del archivo (totales reales) */
+  invalidRows: number;
+  duplicateRows: number;
 }
+
+const fatal = (message: string): ParsedContactSpreadsheet => ({
+  rows: [],
+  errors: [message],
+  warnings: [],
+  fatal: true,
+  invalidRows: 0,
+  duplicateRows: 0,
+});
 
 type Column = 'name' | 'phone' | 'email' | 'tags' | 'source' | 'consent';
 
@@ -100,23 +115,14 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
       ? XLSX.read(buffer.toString('utf8').replace(/^\uFEFF/, ''), { type: 'string', raw: true })
       : XLSX.read(buffer, { type: 'buffer' });
   } catch {
-    return {
-      rows: [],
-      errors: ['No se pudo leer el archivo: verifica que sea un Excel (.xlsx/.xls) o CSV válido'],
-      warnings: [],
-    };
+    return fatal('No se pudo leer el archivo: verifica que sea un Excel (.xlsx/.xls) o CSV válido');
   }
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) return { rows: [], errors: ['El archivo no tiene hojas'], warnings: [] };
+  if (!sheet) return fatal('El archivo no tiene hojas');
 
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', blankrows: true, raw: false });
   while (matrix.length > 1 && (matrix[matrix.length - 1] ?? []).every((c) => cellText(c) === '')) matrix.pop();
-  if (matrix.length < 2)
-    return {
-      rows: [],
-      errors: ['El archivo está vacío: se esperaba una cabecera y al menos un contacto'],
-      warnings: [],
-    };
+  if (matrix.length < 2) return fatal('El archivo está vacío: se esperaba una cabecera y al menos un contacto');
 
   const columnIndex = new Map<Column, number>();
   (matrix[0] ?? []).forEach((header, index) => {
@@ -125,21 +131,13 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
   });
   const missing = REQUIRED.filter(([c]) => !columnIndex.has(c)).map(([, label]) => label);
   if (missing.length) {
-    return {
-      rows: [],
-      errors: [
-        `Faltan columnas obligatorias: ${missing.join(', ')}. Columnas esperadas: Nombre, Teléfono, Correo, Etiquetas, Origen, Autorización`,
-      ],
-      warnings: [],
-    };
+    return fatal(
+      `Faltan columnas obligatorias: ${missing.join(', ')}. Columnas esperadas: Nombre, Teléfono, Correo, Etiquetas, Origen, Autorización`,
+    );
   }
   const dataRows = matrix.slice(1);
   if (dataRows.length > MAX_CONTACT_ROWS) {
-    return {
-      rows: [],
-      errors: [`El archivo supera el máximo de ${MAX_CONTACT_ROWS} contactos por importación`],
-      warnings: [],
-    };
+    return fatal(`El archivo supera el máximo de ${MAX_CONTACT_ROWS} contactos por importación`);
   }
 
   const get = (cells: unknown[], c: Column) => {
@@ -149,16 +147,19 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
   const rows: ContactImportRow[] = [];
   const errors: string[] = [];
   const warnings: string[] = [];
+  const duplicates: string[] = [];
   const seen = new Map<string, number>();
 
   dataRows.forEach((cells, i) => {
     const row = i + 2;
     if (cells.every((c) => cellText(c) === '')) return;
     const rawPhone = cellText(get(cells, 'phone'));
-    const phone = toE164(rawPhone);
+    // Solo celulares de Colombia (57 + 3xx + 7 dígitos): WhatsApp de personas, no fijos ni otros países
+    const normalized = toColombianPhone(rawPhone);
+    const phone = normalized && isColombianMobile(normalized) ? normalized : null;
     const source = cellText(get(cells, 'source'));
     const rowErrors: string[] = [];
-    if (!phone) rowErrors.push(`el Teléfono "${rawPhone}" no es válido`);
+    if (!phone) rowErrors.push(`el Teléfono "${rawPhone}" no es un celular colombiano válido`);
     if (!source) rowErrors.push('el Origen está vacío');
     if (rowErrors.length) {
       errors.push(`Fila ${row}: ${rowErrors.join(', ')}`);
@@ -166,7 +167,7 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
     }
     const firstRow = seen.get(phone!);
     if (firstRow) {
-      warnings.push(`Fila ${row}: teléfono repetido (ya está en la fila ${firstRow}); se ignora`);
+      duplicates.push(`Fila ${row}: teléfono repetido (ya está en la fila ${firstRow}); se ignora`);
       return;
     }
     seen.set(phone!, row);
@@ -191,6 +192,13 @@ export function parseContactSpreadsheet(buffer: Buffer, filename: string): Parse
     });
   });
 
-  if (!errors.length && !rows.length) errors.push('El archivo no contiene contactos para importar');
-  return { rows, errors: capped(errors), warnings: capped(warnings) };
+  if (!errors.length && !rows.length) return fatal('El archivo no contiene contactos para importar');
+  return {
+    rows,
+    errors: capped(errors),
+    warnings: capped([...duplicates, ...warnings]),
+    fatal: false,
+    invalidRows: errors.length,
+    duplicateRows: duplicates.length,
+  };
 }

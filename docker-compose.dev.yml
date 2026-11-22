@@ -22,6 +22,19 @@ services:
       - /app/node_modules
       - uploads:/app/uploads
 
+  # Mismo código que la API (bind mount); compila a dist-worker/ para no pisar el dist/ de la API
+  worker:
+    image: jurisglobal-worker-dev
+    build:
+      target: dev
+    restart: "no"
+    command: ["npm", "run", "start:worker:dev"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
   web:
     image: jurisglobal-web-dev
     build:

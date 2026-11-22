@@ -12,6 +12,8 @@ case "${1:-help}" in
   up)          "${PROD[@]}" up -d --build ;;
   down)        "${DEV[@]}" down ;;
   logs)        "${DEV[@]}" logs -f --tail=100 "${@:2}" ;;
+  worker-logs) "${DEV[@]}" logs -f --tail=100 worker ;;
+  worker-restart) "${DEV[@]}" restart worker ;;
   ps)          "${DEV[@]}" ps ;;
   migrate)     "${DEV[@]}" exec api npx prisma migrate deploy ;;
   migrate-dev) "${DEV[@]}" exec api npx prisma migrate dev --name "${2:?Uso: ./jg migrate-dev <nombre>}" ;;
@@ -34,6 +36,8 @@ case "${1:-help}" in
 ./jg up                  Producción (imágenes compiladas; solo 127.0.0.1:8088)
 ./jg down                Detiene la instancia (conserva los datos)
 ./jg logs [servicio]     Logs
+./jg worker-logs         Logs del worker de masivos (cola Redis)
+./jg worker-restart      Reinicia el worker de masivos
 ./jg ps                  Estado
 ./jg migrate             prisma migrate deploy
 ./jg migrate-dev <name>  Nueva migración (solo desarrollo)

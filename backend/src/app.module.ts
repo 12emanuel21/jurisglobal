@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ThrottlerModule } from '@nestjs/throttler';
+import type Redis from 'ioredis';
 import { PrismaModule } from './prisma/prisma.module';
-import { RedisModule } from './redis/redis.module';
+import { REDIS, RedisModule } from './redis/redis.module';
+import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { HealthModule } from './health/health.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
@@ -13,15 +15,23 @@ import { SettingsModule } from './settings/settings.module';
 import { MailModule } from './mail/mail.module';
 import { LeadsModule } from './leads/leads.module';
 import { AdminModule } from './admin/admin.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 
 /**
- * Etapa 5: + panel de administración (leads, configuración dinámica y usuarios). Los masivos
- * llegan en la Etapa 6 (docs/02-plan-de-etapas.md).
+ * API HTTP. Etapa 6: + masivos (contactos, plantillas y campañas). Los envíos los hace el proceso
+ * worker aparte (src/worker.ts) desde la cola de Redis; la API solo encola.
  */
 @Module({
   imports: [
-    // Límite por IP: solo donde se use un ThrottlerGuard (login, 2FA; en la Etapa 2, el formulario)
-    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 20 }] }),
+    // Límite por IP (login, 2FA y POST /api/leads), contado en Redis: sobrevive a reinicios
+    ThrottlerModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [REDIS],
+      useFactory: (redis: Redis) => ({
+        throttlers: [{ ttl: 60_000, limit: 20 }],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     PrismaModule,
     RedisModule,
     HealthModule,
@@ -35,6 +45,7 @@ import { AdminModule } from './admin/admin.module';
     MailModule,
     LeadsModule,
     AdminModule,
+    CampaignsModule,
   ],
 })
 export class AppModule {}

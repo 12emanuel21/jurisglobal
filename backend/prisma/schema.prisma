@@ -315,6 +315,7 @@ model Contact {
   campaignMsgs CampaignMessage[]
 
   @@index([consentStatus])
+  @@index([sourceDetail])
 }
 
 /// Lista de supresión por seudónimo: una baja sobrevive a la anonimización del contacto
@@ -345,21 +346,32 @@ model ContactImport {
 }
 
 model MessageTemplate {
-  id            String     @id @default(uuid())
-  metaId        String     @unique
+  id            String       @id @default(uuid())
+  /// id de Meta (null si se registró a mano en el panel y aún no se sincroniza)
+  metaId        String?      @unique
+  /// Nombre técnico en Meta (minúsculas y guiones bajos)
   name          String
   language      String
   /// MARKETING, UTILITY…
   category      String
+  /// Uso en JurisGlobal: MARKETING (solo verificados) u OPT_IN (confirmación de autorización)
+  purpose       CampaignKind @default(MARKETING)
   /// APPROVED, PAUSED, REJECTED…
   status        String
   /// Copia de Meta (HEADER/BODY/FOOTER/BUTTONS)
   components    Json
   bodyText      String
+  footerText    String?
+  /// Botones de respuesta rápida: [{ text, role: OPT_OUT | OPT_IN_ACCEPT | OTHER }]
+  buttons       Json         @default("[]")
   variableCount Int
-  /// La plantilla trae opción de baja (botón o texto): obligatoria para MARKETING (ESP §7.2)
-  hasOptOut     Boolean    @default(false)
-  lastSyncedAt  DateTime
+  /// La plantilla trae opción de baja (botón o texto): obligatoria para lanzar (ESP §7.2)
+  hasOptOut     Boolean      @default(false)
+  /// MANUAL (panel) | META (sincronizada desde Graph)
+  source        String       @default("MANUAL")
+  lastSyncedAt  DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
   campaigns     Campaign[]
 
   @@unique([name, language])
@@ -396,8 +408,13 @@ model Campaign {
   dailyCap        Int?
   startedAt       DateTime?
   completedAt     DateTime?
-  /// MANUAL, QUALITY_RED, ACCOUNT_ERROR…
+  /// MANUAL, TEMPLATE_ERROR, ACCOUNT_ERROR, NOT_CONFIGURED, NO_WINDOW
   pausedReason    String?
+  /// Simulación: recorre ventanas, topes y jitter sin llamar a Meta
+  dryRun          Boolean         @default(false)
+  /// Próxima ejecución del worker y por qué espera (WINDOW, DAILY_LIMIT, FREQUENCY_CAP, JITTER, SCHEDULED, RETRY)
+  nextRunAt       DateTime?
+  waitReason      String?
   createdById     String?
   createdBy       User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
   createdAt       DateTime        @default(now())
@@ -426,12 +443,14 @@ model CampaignMessage {
   phone         String
   variables     Json
   status        CampaignMsgStatus @default(PENDING)
-  /// OPTED_OUT, NO_CONSENT, FREQUENCY_CAP, DUPLICATE, INVALID_PHONE
+  /// OPTED_OUT, NO_CONSENT, NO_PHONE, CANCELLED
   skipReason    String?
   attempts      Int               @default(0)
+  /// Diferido por tope por contacto: no se envía antes de esta fecha
+  notBefore     DateTime?
   waMessageId   String?           @unique
   errorCode     Int?
-  /// cliente | usuario_meta | cuenta_waba | plantilla | infraestructura | desconocido
+  /// RECIPIENT, OPT_OUT, TEMPLATE, ACCOUNT, RATE_LIMIT, INFRA, UNKNOWN (meta-errors.ts)
   errorCategory String?
   errorDetail   String?
   queuedAt      DateTime?
@@ -441,12 +460,15 @@ model CampaignMessage {
   failedAt      DateTime?
   /// La persona respondió: entra al flujo del bot (ESP §7.2)
   repliedAt     DateTime?
+  /// La persona se dio de baja después de recibir este mensaje (métrica "bajas")
+  optedOutAt    DateTime?
   createdAt     DateTime          @default(now())
   message       Message?
 
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
   @@index([contactId, sentAt])
+  @@index([sentAt])
 }
 
 // ─────────────────── Ventanas horarias y festivos (ESP §7.2) ───────────────────

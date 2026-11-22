@@ -18,8 +18,8 @@ export const SETTING_DEFAULTS = {
   'marketing.maxPerContactPerDay': 1,
   'marketing.maxPerContactPerWeek': 2,
   'marketing.dailyGlobalLimit': 250,
-  /** Retraso aleatorio entre envíos (ms) */
-  'marketing.jitterMs': { min: 4000, max: 15000 },
+  /** Retraso aleatorio entre envíos (ms): editable en Configuración (3–12 s por defecto) */
+  'marketing.jitterMs': { min: 3000, max: 12000 },
   /** Pausa automática de campañas si Meta marca la calidad del número en rojo */
   'marketing.pauseOnQualityRed': true,
   /**

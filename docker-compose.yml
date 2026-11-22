@@ -5,6 +5,7 @@
 #
 # Puertos en el host (todos en 127.0.0.1; KovalCloud usa 80, 3030, 4000, 5000, 5432):
 #   8088 nginx (prod y dev) · solo dev: 4100 api · 3100 web · 55432 postgres · 56379 redis
+# El worker de masivos no publica puertos (solo habla con Redis y PostgreSQL).
 # Secretos en .env (no versionado; ver .env.example).
 
 name: jurisglobal
@@ -66,6 +67,28 @@ services:
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
+    networks: [jg_net]
+
+  # Worker de masivos: procesa la cola de Redis (BullMQ) fuera de la API. Misma imagen, otro proceso.
+  worker:
+    build:
+      context: ./backend
+      target: prod
+    container_name: jurisglobal_worker
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    env_file: .env
+    environment: *backend-env
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # Sin HTTP: el worker actualiza un archivo de señal de vida cada 30 s
+    healthcheck:
+      test: ["CMD", "node", "-e", "const t=+require('fs').readFileSync('/tmp/jurisglobal-worker.alive','utf8');process.exit(Date.now()-t<90000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     networks: [jg_net]
 
   web:

@@ -14,6 +14,8 @@ export interface ParsedInbound {
   text: string;
   /** id del botón o de la fila elegida (el flujo del bot usa el id, no el título) */
   interactiveId: string | null;
+  /** wamid del mensaje citado (botones de plantilla: el envío de la campaña) */
+  contextId: string | null;
   media: { type: MediaMessageType; id: string | null; mime: string | null; filename: string | null } | null;
 }
 
@@ -58,6 +60,7 @@ export function parseInboundMessage(msg: any): ParsedInbound | null {
     type: typeof msg.type === 'string' ? msg.type : (mediaType ?? 'unknown'),
     text,
     interactiveId: typeof interactiveId === 'string' ? interactiveId : null,
+    contextId: typeof msg?.context?.id === 'string' ? msg.context.id : null,
     media,
   };
 }

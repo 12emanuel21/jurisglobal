@@ -5,6 +5,8 @@ import {
   LEY_2300_DEFAULT_WINDOWS as W,
   localDateKey,
   nextOpening,
+  startOfLocalDay,
+  startOfNextLocalDay,
 } from './send-window';
 
 // Colombia es UTC-5 todo el año: 07:00 Bogotá = 12:00 UTC
@@ -73,5 +75,15 @@ describe('Ventanas de envío (Ley 2300: L–V 7–19, sáb 8–15, sin domingos 
     expect(() => assertValidWindow({ dayOfWeek: 1, opensAt: '19:00', closesAt: '07:00', enabled: true })).toThrow();
     expect(() => assertValidWindow({ dayOfWeek: 7, opensAt: '07:00', closesAt: '19:00', enabled: true })).toThrow();
     expect(localDateKey(new Date('2026-11-24T03:00:00Z'))).toBe('2026-11-23');
+  });
+
+  it('inicio del día en Bogotá (topes diarios): 23:30 local sigue siendo el mismo día', () => {
+    expect(startOfLocalDay(bogota('2026-11-24T23:30')).toISOString()).toBe('2026-11-24T05:00:00.000Z');
+    expect(startOfNextLocalDay(bogota('2026-11-24T23:30')).toISOString()).toBe('2026-11-25T05:00:00.000Z');
+    expect(startOfNextLocalDay(bogota('2026-12-31T10:00')).toISOString()).toBe('2027-01-01T05:00:00.000Z');
+    // Tope alcanzado un viernes por la tarde: el siguiente día hábil es el sábado 08:00
+    expect(nextOpening(W, holidays, startOfNextLocalDay(bogota('2026-11-27T16:00')))).toEqual(
+      bogota('2026-11-28T08:00'),
+    );
   });
 });

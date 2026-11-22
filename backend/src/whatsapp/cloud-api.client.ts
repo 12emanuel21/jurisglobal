@@ -216,6 +216,31 @@ export class WhatsAppCloudApi {
     );
   }
 
+  /** ¿Hay credenciales para leer las plantillas de la cuenta (WABA)? */
+  canSyncTemplates(): boolean {
+    const env = loadEnv();
+    return Boolean(env.WHATSAPP_WABA_ID && env.WHATSAPP_ACCESS_TOKEN);
+  }
+
+  /** Todas las plantillas de la WABA (Graph pagina de a 100) */
+  async listTemplates(): Promise<unknown[]> {
+    const env = loadEnv();
+    if (!env.WHATSAPP_WABA_ID || !env.WHATSAPP_ACCESS_TOKEN) throw new WhatsAppNotConfiguredError();
+    const base = `https://graph.facebook.com/${env.WHATSAPP_GRAPH_VERSION}`;
+    let url: string | null =
+      `${base}/${encodeURIComponent(env.WHATSAPP_WABA_ID)}/message_templates?fields=id,name,language,category,status,components&limit=100`;
+    const all: unknown[] = [];
+    for (let page = 0; url && page < 50; page++) {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${env.WHATSAPP_ACCESS_TOKEN}` } });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new WhatsAppApiError(data?.error?.message ?? `Graph API ${res.status}`, res.status, data?.error?.code);
+      if (Array.isArray(data?.data)) all.push(...data.data);
+      url = typeof data?.paging?.next === 'string' ? data.paging.next : null;
+    }
+    return all;
+  }
+
   /** Marca un mensaje entrante como leído (doble check azul) */
   async markAsRead(waMessageId: string): Promise<void> {
     const { base, phoneId, token } = this.config();

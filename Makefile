@@ -2,12 +2,13 @@
 PROD = docker compose -p jurisglobal -f docker-compose.yml
 DEV  = docker compose -p jurisglobal -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: help dev up down logs ps migrate migrate-dev seed seed-prod test test-web lint build backup
+.PHONY: help dev up down logs worker-logs ps migrate migrate-dev seed seed-prod test test-web lint build backup
 
 help:
 	@echo "make dev          Levanta en desarrollo (hot-reload; puertos 8088, 4100, 3100, 55432, 56379 en 127.0.0.1)"
 	@echo "make up           Levanta en producción (imágenes compiladas; solo 127.0.0.1:8088)"
 	@echo "make down         Detiene la instancia (conserva los datos)"
+	@echo "make worker-logs  Logs del worker de masivos"
 	@echo "make migrate      Aplica migraciones (prisma migrate deploy)"
 	@echo "make migrate-dev name=xxx   Crea una migración nueva (solo desarrollo)"
 	@echo "make seed         Seed idempotente (dev)    make seed-prod   Seed en producción"
@@ -25,6 +26,9 @@ down:
 
 logs:
 	$(DEV) logs -f --tail=100
+
+worker-logs:
+	$(DEV) logs -f --tail=100 worker
 
 ps:
 	$(DEV) ps

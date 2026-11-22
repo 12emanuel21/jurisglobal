@@ -19,6 +19,7 @@ const SETTINGS: EditableSettings = {
   'marketing.maxPerContactPerDay': 1,
   'marketing.maxPerContactPerWeek': 2,
   'marketing.dailyGlobalLimit': 250,
+  'marketing.jitterMs': { min: 3000, max: 12000 },
 };
 
 describe('Configuración · Asesoría y contacto', () => {

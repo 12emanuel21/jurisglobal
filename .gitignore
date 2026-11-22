@@ -10,6 +10,7 @@ referencias/
 # Dependencias y builds
 node_modules/
 dist/
+dist-worker/
 .next/
 out/
 coverage/

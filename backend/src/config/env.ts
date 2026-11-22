@@ -21,6 +21,11 @@ export const envSchema = z.object({
 
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
+  /** Prefijo de las claves propias en Redis (límite por IP y colas BullMQ). Las pruebas usan uno aparte */
+  REDIS_KEY_PREFIX: z
+    .string()
+    .regex(/^[\w:.-]{1,60}$/)
+    .default('jg:'),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
   JWT_EXPIRES_IN: z.string().default('12h'),
@@ -60,6 +65,12 @@ export const envSchema = z.object({
   SMTP_FROM: optional,
   /** Destinatarios del aviso de lead (coma). El valor de Configuración (notify.leadEmails) tiene prioridad */
   LEAD_NOTIFICATION_EMAIL: optional,
+
+  /** Masivos: true = el worker nunca llama a Meta aunque haya credenciales (todas las campañas simulan) */
+  CAMPAIGNS_FORCE_DRY_RUN: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   /** Envíos por minuto e IP a POST /leads */
   LEADS_RATE_LIMIT: z.coerce.number().int().positive().default(5),

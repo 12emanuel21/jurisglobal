@@ -332,9 +332,82 @@ Pruebas:
 - El flujo completo funciona: llega un lead → aparece en vivo → se asigna → se agrega una nota → pasa a CONTACTADO → se exporta el CSV con filtros → la exportación queda en la auditoría.
 - Cambiar el texto de autorización genera una nueva `textVersion` y los consentimientos anteriores conservan el texto antiguo.
 
-## Etapa 6 · Envíos masivos
+## Etapa 6 · Envíos masivos — ✅ completada el 22-nov-2026 (pendiente de tu aprobación)
 
-**Qué se construye**
+Lo construido:
+- **Cola real en Redis (BullMQ) con worker dedicado:**
+  - contenedor `jurisglobal_worker` en `docker-compose.yml`: misma imagen de la API, proceso `node dist/worker.js`, sin puertos y con *healthcheck* por archivo de señal de vida;
+  - en desarrollo, `jurisglobal-worker-dev` compila a `dist-worker/`, para no pisar el `dist/` de la API;
+  - `./jg worker-logs` y `./jg worker-restart`.
+  - La API solo encola. Cada campaña tiene **un** trabajo (`jobId` = id de la campaña) que se reprograma a sí mismo con `moveToDelayed`; no hay miles de trabajos con ETA larga.
+  - Concurrencia 1: el conteo de topes no tiene carreras.
+  - Cada 60 s, una revisión (`upsertJobScheduler`) vuelve a encolar las campañas activas si Redis perdió su trabajo y marca como fallidos los envíos interrumpidos a mitad. No los reintenta, para no duplicar mensajes.
+  - Los eventos del worker llegan al panel por Redis pub/sub: el worker publica y la API los reenvía por Socket.io.
+- **Límite por IP de `POST /api/leads` en Redis:** ventana deslizante atómica (Lua) en `RedisThrottlerStorage`. También cubre el login y el 2FA, y sobrevive a reinicios.
+- **Contactos** (`/api/admin/contacts`, solo ADMIN; pestaña Contactos):
+  - tarjetas verificados, no verificados y bajas, que también filtran;
+  - búsqueda, filtro por estado y por origen, y paginación;
+  - alta manual con origen y autorización;
+  - baja manual, con nota y auditoría: no se puede revertir ni volver a agregar.
+- **Importador .xlsx / .csv:**
+  - solo celulares colombianos (`57` + `3xx`), en cualquier formato (+57, 0057, espacios, guiones);
+  - deduplica dentro del archivo y contra la base por `phoneHash`;
+  - exige las columnas Origen y Autorización.
+  - Con soporte documental entra `DOCUMENTED` (verificado) y se registra un `Consent` de marketing con la fila, el archivo y la nota del soporte. Sin soporte entra `UNVERIFIED`.
+  - A un existente solo se le completa lo vacío y se le sube de no verificado a verificado. Nunca se reactiva una baja ni un titular anonimizado.
+  - El resumen informa importados, actualizados, duplicados (en el archivo y ya existentes), en baja, filas inválidas con su detalle, y verificados frente a no verificados.
+  - Plantilla CSV descargable.
+- **Plantillas** (`/api/admin/templates`, solo ADMIN):
+  - registro y edición manual: nombre técnico, idioma, categoría `MARKETING`/`UTILITY`, tipo (marketing o confirmación opt-in), cuerpo con `{{n}}`, pie y botones de respuesta rápida con rol (baja, acepta, otro);
+  - sincronización paginada desde Graph cuando hay `WHATSAPP_WABA_ID` y token; conserva los roles ya ajustados.
+  - No se lanza con una plantilla no aprobada, sin opción de baja o, si es de opt-in, sin botón de aceptar.
+- **Campañas** (`/api/admin/campaigns`, solo ADMIN):
+  - audiencia: todos, por origen o selección;
+  - variables por contacto (primer nombre o nombre completo, con respaldo) o texto fijo;
+  - envío inmediato o programado en hora de Colombia, y modo **simulación** (*dry-run*);
+  - vista previa en vivo: cuántos reciben, excluidos por baja y por no verificado (o ya verificados en un opt-in), cuántos están hoy en su tope y cómo se verá el mensaje;
+  - **lanzar exige Sudo Mode** si el ADMIN tiene 2FA;
+  - Pausar, Reanudar y Cancelar, todo auditado.
+  - Los excluidos quedan como `SKIPPED` con su motivo, para que la exclusión sea auditable.
+- **Controles antes de CADA envío en el worker:**
+  1. baja o supresión en ese instante: un STOP en plena campaña lo excluye;
+  2. ventana `SendWindow` y festivos (`Holiday`) en America/Bogota. Fuera de horario, el trabajo se reprograma al instante exacto de la siguiente apertura y la campaña se reanuda sola;
+  3. topes: límite diario global (y por campaña), y por contacto 1 por día y 2 por semana móvil. Se **difiere** (`notBefore`) al siguiente día hábil, sin descartar el envío;
+  4. jitter aleatorio, editable en Configuración (3–12 s por defecto).
+- **Los 3 fallos del módulo Django, corregidos:**
+  1. el `wamid` se guarda en cada envío y los estados se cruzan por él;
+  2. un error de un destinatario (131047, número inválido…) marca solo ese `CampaignMessage` y la campaña sigue. 131050 da de baja automática (`META_131050`) tanto si llega en la respuesta del envío como en el webhook de estados. Los errores de plantilla o de cuenta pausan la campaña; los de velocidad o conexión se reintentan con espera creciente;
+  3. reanudación automática por horario, sin intervención manual.
+- **Métricas en tiempo real:** total, pendientes, enviados, entregados, leídos, fallidos, bajas, respuestas y omitidos.
+  - Los `statuses` del webhook se aplican en orden monótono.
+  - El panel se refresca por `campaign:progress`, agrupando los eventos.
+  - Tablero con errores más frecuentes, omitidos por motivo, diferidos y destinatarios paginados.
+- **Integración con el chatbot:**
+  - la plantilla enviada queda en el Inbox;
+  - una respuesta marca `repliedAt` y entra al flujo guiado de la Etapa 4 (si el chat llevaba más de 24 h quieto, el flujo empieza limpio);
+  - el botón de baja de la plantilla da de baja (`TEMPLATE_BUTTON`) como un STOP;
+  - «Sí, acepto» en la confirmación opt-in deja al contacto `CONFIRMED`, apto para marketing, con su `Consent` y el `wamid` como evidencia.
+- **Esquema:**
+  - migración `masivos_campanas`;
+  - `MessageTemplate`: `purpose`, `footerText`, `buttons` y `source`; `metaId` pasa a ser opcional;
+  - `Campaign`: `dryRun`, `nextRunAt` y `waitReason`;
+  - `CampaignMessage`: `notBefore` y `optedOutAt`.
+  - La baja quedó en un solo núcleo transaccional (`compliance/opt-out-core.ts`) para el bot, el worker y el panel.
+
+Diferencias con el plan original:
+- El *dispatcher* cada 60 s del diseño se reemplazó por un trabajo por campaña que se reprograma solo. Así la espera es exacta y no se encolan lotes. La revisión cada 60 s quedó como red de seguridad.
+- La pausa automática por calidad RED del número no se implementó: exige consultar `quality_rating` en Graph con credenciales reales (Etapa 7). Los errores de cuenta (por ejemplo 131048) sí pausan.
+- El tope de frecuencia **difiere**, no excluye: la vista previa los muestra aparte como «ya alcanzaron su tope».
+- Sin CSV de destinatarios por ahora; el tablero los lista paginados y filtrables.
+
+Pruebas:
+- Backend:
+  - 185 unitarias (24 suites), entre ellas glosario de errores, reglas de plantillas, regla de verificados, importador y días en Bogotá;
+  - 84 de integración contra PostgreSQL y Redis reales (24 nuevas de masivos): importador, regla de verificados, STOP en plena campaña, sábado → lunes 07:00, domingo programado, festivo trasladado, **worker BullMQ real que se reprograma solo**, topes diario, semanal y global, 131047/131050/132015, estados por webhook firmado, respuestas, botón de baja, opt-in, Sudo Mode, límite por IP en Redis y una **simulación de 2.000 contactos** con reloj acelerado (nada fuera de ventana ni en festivo, máximo 100 por día con el límite de la prueba y sin duplicados).
+- Frontend: 48 de Vitest (6 nuevas): importador, campaña con vista previa de excluidos y tablero con controles y tiempo real.
+- Navegador real (Chromium por nginx en `127.0.0.1:8088`, worker de desarrollo): 21 comprobaciones. Plantilla, importación, vista previa, lanzamiento en simulación un domingo (el panel mostró en vivo «Fuera del horario permitido… próximo envío 23 de nov, 7:00 a. m.»), pausar, reanudar y cancelar, celular sin scroll horizontal y ASESOR sin acceso (403). Las cuentas y los datos de prueba se borraron.
+
+**Qué se construye** (plan original)
 - **Primero se valida el cumplimiento.** Se confirman los valores iniciales con el texto vigente de la Ley 2300 de 2023 (art. 3 y art. 5, parágrafos 2 y 3; resultado preliminar en `00` §4.2) y se dejan documentados.
 - Prisma: `ContactImport`, `MessageTemplate`, `Campaign`, `CampaignMessage`, `SendWindow`, `Holiday`; `Contact` completo.
 - **Importador**:

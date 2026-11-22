@@ -101,12 +101,28 @@ mismo `LeadsService` de la web. No clasifica, no asesora y no promete.
 
 La exportación CSV está pensada para Excel en Colombia (UTF-8 con BOM, `;`, teléfono `="+57…"`).
 
+## Masivos (Etapa 6)
+
+`/panel/masivos` (solo ADMIN): pestañas Campañas, Contactos y Plantillas. Los envíos los hace el
+**worker** (contenedor `jurisglobal_worker`, cola BullMQ en Redis); la API solo encola.
+
+| Sección | API |
+|---|---|
+| Contactos, importador .xlsx/.csv, baja manual | `/api/admin/contacts` (`/import`, `/:id/opt-out`, `/sources`) |
+| Plantillas de Meta (manual o sincronizadas) | `/api/admin/templates` (`/sync`) |
+| Campañas: vista previa, lanzar (Sudo Mode con 2FA), pausar, reanudar, cancelar, métricas | `/api/admin/campaigns` |
+
+- **Verificados** (soporte documental o «Sí, acepto» por WhatsApp) reciben marketing; los **no verificados** solo la campaña de confirmación (opt-in); las **bajas** nada.
+- Antes de cada envío, el worker revisa la baja, el horario Ley 2300 y los festivos, los topes (por contacto y global) y aplica el jitter. Fuera de horario, la campaña espera y se reanuda sola.
+- Modo simulación por campaña, o `CAMPAIGNS_FORCE_DRY_RUN=true` para todo el servidor.
+- `./jg worker-logs` muestra el log del worker.
+
 ## Pruebas
 
 ```bash
 ./jg test       # backend (unitarias + integración, crea y migra la BD jurisglobal_test) y frontend (Vitest)
 ./jg test-unit  # backend: solo unitarias
-./jg test-e2e   # backend: solo integración
+./jg test-e2e   # backend: solo integración (PostgreSQL y Redis reales; incluye la simulación de 2.000 contactos, ~2 min)
 ./jg test-web   # frontend: Vitest + Testing Library
 ./jg lint       # tipos y lint de backend y frontend
 ```

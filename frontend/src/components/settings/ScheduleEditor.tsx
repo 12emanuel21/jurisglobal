@@ -109,6 +109,9 @@ function CapsSection({ settings, onSaved }: { settings: EditableSettings; onSave
   const [perDay, setPerDay] = useState(String(settings['marketing.maxPerContactPerDay']));
   const [perWeek, setPerWeek] = useState(String(settings['marketing.maxPerContactPerWeek']));
   const [global, setGlobal] = useState(String(settings['marketing.dailyGlobalLimit']));
+  const jitter = settings['marketing.jitterMs'] ?? { min: 3000, max: 12000 };
+  const [jitterMin, setJitterMin] = useState(String(Math.round(jitter.min / 1000)));
+  const [jitterMax, setJitterMax] = useState(String(Math.round(jitter.max / 1000)));
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
@@ -122,6 +125,7 @@ function CapsSection({ settings, onSaved }: { settings: EditableSettings; onSave
           'marketing.maxPerContactPerDay': Number(perDay),
           'marketing.maxPerContactPerWeek': Number(perWeek),
           'marketing.dailyGlobalLimit': Number(global),
+          'marketing.jitterMs': { min: Math.round(Number(jitterMin) * 1000), max: Math.round(Number(jitterMax) * 1000) },
         }),
       );
       setFeedback({ ok: true, text: 'Topes guardados.' });
@@ -144,11 +148,17 @@ function CapsSection({ settings, onSaved }: { settings: EditableSettings; onSave
   return (
     <form onSubmit={save} className={`${card} p-5`}>
       <h3 className="text-sm font-bold text-navy dark:text-slate-100">Topes de envío de masivos</h3>
-      <p className={`mt-1 text-xs ${muted}`}>Se aplican a las campañas de la Etapa 6.</p>
+      <p className={`mt-1 text-xs ${muted}`}>
+        El worker los revisa antes de cada envío: si un contacto o el día llegan al tope, el mensaje espera al siguiente día hábil.
+      </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {field('cap-day', 'Máximo por contacto al día', perDay, setPerDay, 5)}
         {field('cap-week', 'Máximo por contacto a la semana', perWeek, setPerWeek, 14)}
         {field('cap-global', 'Límite diario global', global, setGlobal, 10000)}
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {field('jitter-min', 'Retraso mínimo entre envíos (s)', jitterMin, setJitterMin, 300)}
+        {field('jitter-max', 'Retraso máximo entre envíos (s)', jitterMax, setJitterMax, 300)}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button type="submit" disabled={busy} className={btnPrimary}>

@@ -61,6 +61,13 @@ export const EDITABLE_SETTINGS = {
   'marketing.maxPerContactPerDay': intIn(1, 5, 'Máximo por contacto al día'),
   'marketing.maxPerContactPerWeek': intIn(1, 14, 'Máximo por contacto a la semana'),
   'marketing.dailyGlobalLimit': intIn(1, 10_000, 'Límite diario global'),
+  /** Retraso aleatorio entre envíos de masivos, en ms (el panel lo muestra en segundos) */
+  'marketing.jitterMs': z
+    .object({
+      min: intIn(1_000, 300_000, 'Retraso mínimo entre envíos (ms)'),
+      max: intIn(1_000, 300_000, 'Retraso máximo entre envíos (ms)'),
+    })
+    .refine((j) => j.min <= j.max, { message: 'El retraso mínimo no puede ser mayor que el máximo' }),
 } satisfies Partial<Record<SettingKey, z.ZodType>>;
 
 export type EditableSettingKey = keyof typeof EDITABLE_SETTINGS;
