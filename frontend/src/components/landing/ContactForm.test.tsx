@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetPublicConfigCache } from '@/lib/public-config';
-import { leadPosts, makeConfig, mockApi } from '@/test/fixtures';
+import { MOTIVOS, leadPosts, makeConfig, mockApi } from '@/test/fixtures';
 import { ContactForm } from './ContactForm';
 import { SELECT_MOTIVO_EVENT } from './SelectMotivoLink';
 
@@ -13,7 +13,7 @@ async function fillValid(user: ReturnType<typeof userEvent.setup>, phone = '300 
   await user.type(screen.getByLabelText('Nombre completo'), '  Ana   María Pérez ');
   await user.type(screen.getByLabelText('Teléfono'), phone);
   await user.type(screen.getByLabelText('Correo electrónico'), 'Ana@Correo.co');
-  await user.selectOptions(screen.getByLabelText('Motivo de tu consulta'), 'Tránsito');
+  await user.selectOptions(screen.getByLabelText('Motivo de tu consulta'), 'Familia y tránsito');
 }
 
 describe('ContactForm (formulario unificado)', () => {
@@ -25,7 +25,7 @@ describe('ContactForm (formulario unificado)', () => {
     render(<ContactForm />);
     const select = await screen.findByLabelText('Motivo de tu consulta');
     const options = within(select).getAllByRole('option').map((o) => o.textContent);
-    expect(options).toEqual(['Selecciona una opción', 'Tránsito', 'Cartera', 'Deudas', 'Otro']);
+    expect(options).toEqual(['Selecciona una opción', ...MOTIVOS.map((m) => m.name)]);
     expect(screen.getByRole('checkbox', { name: PRIVACY })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: CONTACT })).not.toBeChecked();
     expect(screen.getByRole('link', { name: 'Aviso de Privacidad' })).toHaveAttribute('href', '/legal/privacidad');
@@ -35,10 +35,10 @@ describe('ContactForm (formulario unificado)', () => {
   });
 
   it('un motivo inactivo (ausente en la configuración) no aparece', async () => {
-    mockApi(makeConfig({ motivos: [{ id: 'm-transito', name: 'Tránsito' }, { id: 'm-otro', name: 'Otro' }] }));
+    mockApi(makeConfig({ motivos: [{ id: 'm-familia', name: 'Familia y tránsito' }, { id: 'm-otro', name: 'Otro' }] }));
     render(<ContactForm />);
     const select = await screen.findByLabelText('Motivo de tu consulta');
-    expect(within(select).queryByRole('option', { name: 'Cartera' })).toBeNull();
+    expect(within(select).queryByRole('option', { name: 'Insolvencia y deudas' })).toBeNull();
   });
 
   it('rechaza el envío si faltan las autorizaciones (no llama a POST /api/leads)', async () => {
@@ -89,7 +89,7 @@ describe('ContactForm (formulario unificado)', () => {
       fullName: 'Ana María Pérez',
       phone: '+573001234567',
       email: 'ana@correo.co',
-      motivo: 'm-transito',
+      motivo: 'm-familia',
       origin: 'web',
       privacyAndTerms: true,
       contactAndDataProcessing: true,
@@ -128,9 +128,9 @@ describe('ContactForm (formulario unificado)', () => {
     render(<ContactForm />);
     const select = await screen.findByLabelText('Motivo de tu consulta');
     act(() => {
-      window.dispatchEvent(new CustomEvent(SELECT_MOTIVO_EVENT, { detail: 'Deudas' }));
+      window.dispatchEvent(new CustomEvent(SELECT_MOTIVO_EVENT, { detail: 'Reestructuración' }));
     });
-    expect(select).toHaveValue('m-deudas');
+    expect(select).toHaveValue('m-reestructuracion');
   });
 
   it('si la configuración no carga, ofrece WhatsApp en lugar del formulario', async () => {

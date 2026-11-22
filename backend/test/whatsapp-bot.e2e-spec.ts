@@ -15,6 +15,7 @@ import { WhatsAppCloudApi } from '../src/whatsapp/cloud-api.client';
 import { WebhookProcessor } from '../src/whatsapp/webhook.processor';
 import { chatMediaPath } from '../src/whatsapp/media';
 import { resetDatabase, waitFor } from './helpers';
+import { MOTIVOS } from '../src/scripts/seed';
 
 // Gemini simulado: se ve exactamente qué prompt y qué pregunta le llegan
 jest.mock('ai', () => ({ ...jest.requireActual('ai'), generateObject: jest.fn(), generateText: jest.fn() }));
@@ -131,7 +132,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
         fullName: 'Ana María Pérez',
         phone,
         email: 'ana@correo.co',
-        motivo: 'Tránsito',
+        motivo: 'Familia y tránsito',
         origin: 'web',
         privacyAndTerms: true,
         contactAndDataProcessing: true,
@@ -224,11 +225,11 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     expect(last().body).toContain('correo electrónico');
 
     await say('Ana@Correo.co');
-    expect(last().kind).toBe('list'); // 4 motivos activos -> lista interactiva
-    expect(last().options.map((o) => o.title)).toEqual(['Tránsito', 'Cartera', 'Deudas', 'Otro']);
-    expect(last().body).toContain('1. Tránsito');
+    expect(last().kind).toBe('list'); // 7 motivos activos (6 áreas + Otro) -> lista interactiva
+    expect(last().options.map((o) => o.title)).toEqual(MOTIVOS);
+    expect(last().body).toContain('6. Familia y tránsito');
 
-    await pick(`motivo:${await motivoId('Tránsito')}`, 'Tránsito');
+    await pick(`motivo:${await motivoId('Familia y tránsito')}`, 'Familia y tránsito');
     const lead = await prisma.lead.findUniqueOrThrow({ where: { phone: PHONE }, include: { motivo: true } });
     expect(lead).toMatchObject({
       fullName: 'Ana María Pérez',
@@ -237,7 +238,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
       lastOrigin: 'WHATSAPP',
       submissionCount: 1,
     });
-    expect(lead.motivo.name).toBe('Tránsito');
+    expect(lead.motivo.name).toBe('Familia y tránsito');
     // El Consent del botón «Acepto» queda enlazado al lead (sin duplicarse)
     const consents = await prisma.consent.findMany({ where: { phoneHash: phoneHash(PHONE) } });
     expect(consents).toHaveLength(1);
@@ -248,7 +249,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     expect(closing).toContain('• *Nombre:* Ana María Pérez');
     expect(closing).toContain('• *Teléfono:* +57 300 111 2233');
     expect(closing).toContain('• *Correo:* ana@correo.co');
-    expect(closing).toContain('• *Motivo:* Tránsito');
+    expect(closing).toContain('• *Motivo:* Familia y tránsito');
     expect(closing).toContain(
       'Gracias, hemos registrado tus datos. Un asesor de JurisGlobal se comunicará contigo pronto por llamada o correo.',
     );
@@ -265,14 +266,21 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
   });
 
   it('1b · con 3 motivos o menos usa botones y acepta el número escrito', async () => {
-    await prisma.motivo.update({ where: { name: 'Otro' }, data: { isActive: false } });
+    await prisma.motivo.updateMany({
+      where: { name: { notIn: ['Insolvencia y deudas', 'Reestructuración', 'Familia y tránsito'] } },
+      data: { isActive: false },
+    });
     await reach('ASK_MOTIVO');
     expect(last().kind).toBe('buttons');
-    expect(last().options.map((o) => o.title)).toEqual(['Tránsito', 'Cartera', 'Deudas']);
+    expect(last().options.map((o) => o.title)).toEqual([
+      'Insolvencia y deudas',
+      'Reestructuración',
+      'Familia y tránsito',
+    ]);
 
-    await say('2');
+    await say('1');
     const lead = await prisma.lead.findUniqueOrThrow({ where: { phone: PHONE }, include: { motivo: true } });
-    expect(lead.motivo.name).toBe('Cartera');
+    expect(lead.motivo.name).toBe('Insolvencia y deudas');
   });
 
   it('2 · «No acepto»: sin lead, comparte los canales institucionales y vuelve a empezar', async () => {
@@ -430,7 +438,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     await webLead();
     await waitFor(() => mail.send.mock.calls.length === 1);
     await reach('ASK_MOTIVO', PHONE, 'Ana Pérez');
-    await pick(`motivo:${await motivoId('Cartera')}`, 'Cartera');
+    await pick(`motivo:${await motivoId('Insolvencia y deudas')}`, 'Insolvencia y deudas');
 
     const leads = await prisma.lead.findMany({ include: { notes: true, consents: true } });
     expect(leads).toHaveLength(1);
@@ -443,7 +451,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     expect(leads[0].notes).toHaveLength(1);
     expect(leads[0].notes[0].body).toContain('Recontacto automático por WhatsApp (envío #2)');
     expect(leads[0].notes[0].body).toContain('Nombre: «Ana Pérez»');
-    expect(leads[0].notes[0].body).toContain('Motivo: «Cartera» (registrado: «Tránsito»)');
+    expect(leads[0].notes[0].body).toContain('Motivo: «Insolvencia y deudas» (registrado: «Familia y tránsito»)');
     // 2 autorizaciones de la web + la del botón «Acepto»
     expect(leads[0].consents.map((c) => c.channel).sort()).toEqual(['WEB', 'WEB', 'WHATSAPP']);
     expect(emit).toHaveBeenCalledWith('lead:updated', { leadId: leads[0].id, isNew: false });
@@ -586,7 +594,7 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     expect((await conversation(foreign)).flowState).toBe('ASK_PHONE');
     await say('300 999 8877', foreign);
     expect((await conversation(foreign)).flowState).toBe('ASK_MOTIVO');
-    await say('Deudas', foreign);
+    await say('Reestructuración', foreign);
     const lead = await prisma.lead.findUniqueOrThrow({ where: { phone: '573009998877' } });
     expect(lead.origin).toBe('WHATSAPP');
     // El Consent del botón (otro número) se conserva; el lead lleva el suyo propio

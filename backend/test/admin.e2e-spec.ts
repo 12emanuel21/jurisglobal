@@ -14,6 +14,7 @@ import { LeadsService } from '../src/leads/leads.service';
 import { RealtimeGateway } from '../src/realtime/realtime.gateway';
 import { CHAT_MEDIA_ROOT } from '../src/whatsapp/media';
 import { resetDatabase } from './helpers';
+import { MOTIVOS } from '../src/scripts/seed';
 
 /**
  * Integración del panel (Etapa 5): leads, exportación, anonimización Ley 1581, configuración y
@@ -42,7 +43,7 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
       fullName: 'Ana María Pérez',
       phone: '3001234567',
       email: 'ana@correo.co',
-      motivo: 'Tránsito',
+      motivo: 'Familia y tránsito',
       channel: 'WEB',
       consents: { privacyAndTerms: true, contactAndDataProcessing: true },
       evidence: { ip: '10.0.0.1', userAgent: 'jest' },
@@ -78,12 +79,17 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
   describe('Leads: listado, filtros y paginación', () => {
     beforeEach(async () => {
       await submit();
-      await submit({ fullName: 'Carlos Gómez', phone: '3109998877', email: 'carlos@gmail.com', motivo: 'Cartera' });
+      await submit({
+        fullName: 'Carlos Gómez',
+        phone: '3109998877',
+        email: 'carlos@gmail.com',
+        motivo: 'Insolvencia y deudas',
+      });
       await submit({
         fullName: 'Luz Dary Rojas',
         phone: '6051234567',
         email: 'luz@empresa.co',
-        motivo: 'Deudas',
+        motivo: 'Reestructuración',
         channel: 'WHATSAPP',
         consents: { contactAndDataProcessing: true },
       });
@@ -98,7 +104,7 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
       expect(luz).toMatchObject({
         phone: '+576051234567',
         origin: 'WHATSAPP',
-        motivo: { name: 'Deudas' },
+        motivo: { name: 'Reestructuración' },
         status: 'NEW',
       });
       await api().get('/admin/leads').set(as(admin)).expect(200);
@@ -112,7 +118,7 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
 
       expect(await names({ status: 'contactado' })).toEqual(['Carlos Gómez']);
       expect(await names({ status: 'nuevo' })).toEqual(['Ana María Pérez', 'Luz Dary Rojas']);
-      const cartera = await prisma.motivo.findUniqueOrThrow({ where: { name: 'Cartera' } });
+      const cartera = await prisma.motivo.findUniqueOrThrow({ where: { name: 'Insolvencia y deudas' } });
       expect(await names({ motivoId: cartera.id })).toEqual(['Carlos Gómez']);
       expect(await names({ origin: 'whatsapp' })).toEqual(['Luz Dary Rojas']);
       expect(await names({ origin: 'web' })).toEqual(['Ana María Pérez', 'Carlos Gómez']);
@@ -212,11 +218,19 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
   describe('Exportación CSV', () => {
     it('UTF-8 con BOM, ";", tildes y eñes, +57 como texto y filtros activos (auditada sin la búsqueda)', async () => {
       await submit({ fullName: 'José Ñúñez Peña', email: 'jose@correo.co' });
-      await submit({ fullName: 'Otra Persona', phone: '3205556677', email: 'otra@correo.co', motivo: 'Cartera' });
+      await submit({
+        fullName: 'Otra Persona',
+        phone: '3205556677',
+        email: 'otra@correo.co',
+        motivo: 'Insolvencia y deudas',
+      });
 
       const res = await api()
         .get('/admin/leads/export')
-        .query({ motivoId: (await prisma.motivo.findUniqueOrThrow({ where: { name: 'Tránsito' } })).id, q: 'ñúñez' })
+        .query({
+          motivoId: (await prisma.motivo.findUniqueOrThrow({ where: { name: 'Familia y tránsito' } })).id,
+          q: 'ñúñez',
+        })
         .set(as(asesor))
         .buffer(true)
         .parse((r, cb) => {
@@ -236,7 +250,7 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
       );
       expect(lines).toHaveLength(2);
       expect(lines[1]).toContain(
-        ';José Ñúñez Peña;"=""+573001234567""";jose@correo.co;Tránsito;Web;Web;Nuevo;;1;No;No',
+        ';José Ñúñez Peña;"=""+573001234567""";jose@correo.co;Familia y tránsito;Web;Web;Nuevo;;1;No;No',
       );
 
       const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: 'LEADS_EXPORTED' } });
@@ -414,14 +428,8 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
 
     it('motivos: crear, renombrar, reordenar y desactivar se reflejan en /public/config', async () => {
       const created = await api().post('/admin/motivos').set(as(admin)).send({ name: '  Sucesiones ' }).expect(201);
-      expect(created.body.map((m: { name: string }) => m.name)).toEqual([
-        'Tránsito',
-        'Cartera',
-        'Deudas',
-        'Otro',
-        'Sucesiones',
-      ]);
-      await api().post('/admin/motivos').set(as(admin)).send({ name: 'transito' }).expect(409);
+      expect(created.body.map((m: { name: string }) => m.name)).toEqual([...MOTIVOS, 'Sucesiones']);
+      await api().post('/admin/motivos').set(as(admin)).send({ name: 'familia y transito' }).expect(409);
       await api().post('/admin/motivos').set(as(admin)).send({ name: 'Un nombre demasiado largo' }).expect(400);
 
       const byName = Object.fromEntries(created.body.map((m: { name: string; id: string }) => [m.name, m.id]));
@@ -430,7 +438,7 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
         .set(as(admin))
         .send({ name: 'Herencias' })
         .expect(200);
-      const order = [byName['Sucesiones'], byName['Tránsito'], byName['Cartera'], byName['Deudas'], byName['Otro']];
+      const order = [byName['Sucesiones'], ...MOTIVOS.map((n) => byName[n])];
       await api().put('/admin/motivos/order').set(as(admin)).send({ ids: order }).expect(200);
       await api()
         .put('/admin/motivos/order')
@@ -442,21 +450,16 @@ describe('Etapa 5 · Panel de administración (integración)', () => {
       const config = await api().get('/public/config').expect(200);
       expect(config.body.motivos.map((m: { name: string }) => m.name)).toEqual([
         'Herencias',
-        'Tránsito',
-        'Cartera',
-        'Deudas',
+        ...MOTIVOS.filter((n) => n !== 'Otro'),
       ]);
 
       // Siempre queda al menos un motivo activo
-      for (const name of ['Herencias', 'Tránsito', 'Cartera']) {
-        await api()
-          .patch(`/admin/motivos/${byName[name === 'Herencias' ? 'Sucesiones' : name]}`)
-          .set(as(admin))
-          .send({ isActive: false })
-          .expect(200);
+      const remaining = order.filter((id) => id !== byName['Otro']);
+      for (const id of remaining.slice(0, -1)) {
+        await api().patch(`/admin/motivos/${id}`).set(as(admin)).send({ isActive: false }).expect(200);
       }
       const last = await api()
-        .patch(`/admin/motivos/${byName['Deudas']}`)
+        .patch(`/admin/motivos/${remaining.at(-1)}`)
         .set(as(admin))
         .send({ isActive: false })
         .expect(400);

@@ -9,6 +9,7 @@ import { phoneHash } from '../src/common/crypto';
 import { MailService } from '../src/mail/mail.service';
 import { LeadsService } from '../src/leads/leads.service';
 import { resetDatabase, waitFor } from './helpers';
+import { MOTIVOS } from '../src/scripts/seed';
 
 /**
  * Integración: GET /public/config y POST /leads contra PostgreSQL real (base _test), con la misma
@@ -26,7 +27,7 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
     fullName: 'Ana María Pérez',
     phone: '300 123 4567',
     email: 'ana@correo.co',
-    motivo: 'Tránsito',
+    motivo: 'Familia y tránsito',
     origin: 'web',
     privacyAndTerms: true,
     contactAndDataProcessing: true,
@@ -59,7 +60,7 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
   describe('GET /public/config', () => {
     it('motivos activos ordenados, precio oculto con el interruptor apagado, enlaces y textos legales', async () => {
       const res = await request(app.getHttpServer()).get('/public/config').expect(200);
-      expect(res.body.motivos.map((m: { name: string }) => m.name)).toEqual(['Tránsito', 'Cartera', 'Deudas', 'Otro']);
+      expect(res.body.motivos.map((m: { name: string }) => m.name)).toEqual(MOTIVOS);
       expect(res.body.showConsultationPrice).toBe(false);
       expect(res.body.consultationPrice).toBeNull();
       expect(res.body.legal).toEqual({
@@ -78,10 +79,12 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
     it('con el interruptor encendido publica el valor; los motivos inactivos no aparecen', async () => {
       await prisma.setting.update({ where: { key: 'showConsultationPrice' }, data: { value: true } });
       await prisma.setting.update({ where: { key: 'consultationPrice' }, data: { value: 120000 } });
-      await prisma.motivo.update({ where: { name: 'Cartera' }, data: { isActive: false } });
+      await prisma.motivo.update({ where: { name: 'Insolvencia y deudas' }, data: { isActive: false } });
       const res = await request(app.getHttpServer()).get('/public/config').expect(200);
       expect(res.body).toMatchObject({ showConsultationPrice: true, consultationPrice: 120000, currency: 'COP' });
-      expect(res.body.motivos.map((m: { name: string }) => m.name)).toEqual(['Tránsito', 'Deudas', 'Otro']);
+      expect(res.body.motivos.map((m: { name: string }) => m.name)).toEqual(
+        MOTIVOS.filter((n) => n !== 'Insolvencia y deudas'),
+      );
     });
   });
 
@@ -103,7 +106,7 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
         lastOrigin: 'WEB',
         submissionCount: 1,
       });
-      expect(lead.motivo.name).toBe('Tránsito');
+      expect(lead.motivo.name).toBe('Familia y tránsito');
       expect(lead.phoneHash).toBe(phoneHash('573001234567'));
       expect(lead.contact).toMatchObject({ phone: '573001234567', source: 'WEB', consentStatus: 'UNVERIFIED' });
 
@@ -127,7 +130,7 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
       await waitFor(() => mail.send.mock.calls.length === 1);
       const sent = mail.send.mock.calls[0][0];
       expect(sent.to).toEqual(['equipo@jurisglobal.test']);
-      expect(sent.subject).toBe('Nuevo lead · Ana María Pérez · Tránsito (Formulario web)');
+      expect(sent.subject).toBe('Nuevo lead · Ana María Pérez · Familia y tránsito (Formulario web)');
       expect(sent.html).toContain(`/panel/leads/${lead.id}`);
       expect(sent.html).toContain('https://wa.me/573001234567');
     });
@@ -144,18 +147,18 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
 
     it('deduplica por teléfono: no duplica, no sobrescribe, deja nota, suma consentimientos y avisa como recontacto', async () => {
       await post(validLead).expect(201);
-      await post({ ...validLead, email: 'otro@correo.co', motivo: 'deudas' }).expect(201);
+      await post({ ...validLead, email: 'otro@correo.co', motivo: 'reestructuracion' }).expect(201);
 
       const leads = await prisma.lead.findMany({ include: { notes: true, consents: true, motivo: true } });
       expect(leads).toHaveLength(1);
       const [lead] = leads;
       expect(lead).toMatchObject({ email: 'ana@correo.co', submissionCount: 2 });
-      expect(lead.motivo.name).toBe('Tránsito');
+      expect(lead.motivo.name).toBe('Familia y tránsito');
       expect(lead.consents).toHaveLength(4);
       expect(lead.notes).toHaveLength(1);
       expect(lead.notes[0].body).toContain('Recontacto automático por el formulario web (envío #2)');
       expect(lead.notes[0].body).toContain('Correo: «otro@correo.co»');
-      expect(lead.notes[0].body).toContain('Motivo: «Deudas» (registrado: «Tránsito»)');
+      expect(lead.notes[0].body).toContain('Motivo: «Reestructuración» (registrado: «Familia y tránsito»)');
 
       await waitFor(() => mail.send.mock.calls.length === 2);
       expect(mail.send.mock.calls[1][0].subject).toMatch(/^Recontacto \(envío #2\)/);
@@ -177,7 +180,7 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
     });
 
     it('rechaza un motivo inactivo', async () => {
-      await prisma.motivo.update({ where: { name: 'Tránsito' }, data: { isActive: false } });
+      await prisma.motivo.update({ where: { name: 'Familia y tránsito' }, data: { isActive: false } });
       await post(validLead).expect(400);
     });
 
@@ -220,7 +223,7 @@ describe('Etapa 2 · Configuración pública y API de leads (integración)', () 
         fullName: 'Luis Gómez',
         phone: '573109876543',
         email: 'luis@correo.co',
-        motivo: 'Cartera',
+        motivo: 'Insolvencia y deudas',
         channel: 'WHATSAPP',
         consents: { contactAndDataProcessing: true },
         evidence: { wamid: 'wamid.ABC', buttonId: 'consent_yes' },

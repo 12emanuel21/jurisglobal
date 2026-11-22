@@ -18,7 +18,7 @@ vi.mock('@/context/SudoContext', () => ({
 
 const LEADS = [
   makeLead(),
-  makeLead({ id: 'l2', fullName: 'Carlos Gómez', phone: '+573109998877', status: 'CONTACTED', origin: 'WHATSAPP', motivo: { id: 'm-cartera', name: 'Cartera' }, submissionCount: 2 }),
+  makeLead({ id: 'l2', fullName: 'Carlos Gómez', phone: '+573109998877', status: 'CONTACTED', origin: 'WHATSAPP', motivo: { id: 'm-insolvencia', name: 'Insolvencia y deudas' }, submissionCount: 2 }),
 ];
 
 function setup(items = LEADS) {
@@ -49,7 +49,7 @@ describe('LeadsView (listado y filtros)', () => {
     expect(rows).toHaveLength(3); // encabezado + 2
     expect(within(rows[1]).getByText('Ana María Pérez')).toBeInTheDocument();
     expect(within(rows[1]).getByText('+57 300 123 4567')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('Cartera')).toBeInTheDocument();
+    expect(within(rows[2]).getByText('Insolvencia y deudas')).toBeInTheDocument();
     expect(within(rows[2]).getByText('WhatsApp')).toBeInTheDocument();
     expect(within(rows[2]).getByText('Contactado')).toBeInTheDocument();
     expect(screen.getByText('2 leads · página 1 de 1')).toBeInTheDocument();
@@ -62,7 +62,7 @@ describe('LeadsView (listado y filtros)', () => {
     await screen.findByRole('table');
 
     await user.selectOptions(screen.getByLabelText('Estado'), 'CONTACTED');
-    await user.selectOptions(screen.getByLabelText('Motivo'), 'm-cartera');
+    await user.selectOptions(screen.getByLabelText('Motivo'), 'm-insolvencia');
     await user.selectOptions(screen.getByLabelText('Origen'), 'WHATSAPP');
     await user.type(screen.getByLabelText('Desde'), '2026-11-01');
     await user.type(screen.getByLabelText('Buscar'), 'gómez');
@@ -72,7 +72,7 @@ describe('LeadsView (listado y filtros)', () => {
       expect(Object.fromEntries(last)).toEqual({
         q: 'gómez',
         status: 'CONTACTED',
-        motivoId: 'm-cartera',
+        motivoId: 'm-insolvencia',
         origin: 'WHATSAPP',
         from: '2026-11-01',
         page: '1',

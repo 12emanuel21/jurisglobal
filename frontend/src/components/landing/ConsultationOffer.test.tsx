@@ -21,9 +21,9 @@ describe('ConsultationOffer (precio dinámico de la asesoría inicial)', () => {
     render(<ConsultationOffer />);
     expect(await screen.findByRole('heading', { name: '¡VALORACIÓN JURÍDICA GRATIS!' })).toBeInTheDocument();
     expect(screen.getByText('Tu problema merece ser escuchado. Tu tranquilidad merece una solución.')).toBeInTheDocument();
-    expect(
-      screen.getByText('Escríbenos y recibe atención virtual y personalizada de nuestro abogado socio fundador, Ronaldo Jiménez.'),
-    ).toBeInTheDocument();
+    const description = screen.getByText((_, el) => el?.tagName === 'P' && /^Escríbenos y recibe atención virtual/.test(el.textContent ?? ''));
+    expect(description).toHaveTextContent('personalizada de nuestro abogado socio fundador');
+    expect(description).toHaveTextContent('Ronaldo Jiménez');
     expect(screen.getByText('Primer paso sin costo')).toBeInTheDocument();
     expect(screen.getByText('JURISGLOBAL · Tu tranquilidad, nuestra misión.')).toBeInTheDocument();
     expect(screen.getByTestId('consultation-offer')).not.toHaveTextContent('$');

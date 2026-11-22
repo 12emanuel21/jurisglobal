@@ -1,7 +1,7 @@
 /**
  * Seed idempotente: se puede correr varias veces sin duplicar ni pisar cambios del equipo.
  *   dev:  npm run seed:dev      prod: npm run seed  (node dist/scripts/seed.js)
- * - Motivos iniciales (Tránsito, Cartera, Deudas, Otro)
+ * - Motivos iniciales: las 6 áreas de la landing (nombres cortos, máx. 20 caracteres por WhatsApp) y Otro
  * - Ventanas horarias Ley 2300 (solo si el día no existe)
  * - Festivos de Colombia del año en curso y el siguiente
  * - Parámetros (Setting) que falten
@@ -13,7 +13,16 @@ import { colombianHolidays } from '../compliance/holidays';
 import { LEY_2300_DEFAULT_WINDOWS, localDateKey } from '../compliance/send-window';
 import { SETTING_DEFAULTS } from '../settings/defaults';
 
-const MOTIVOS = ['Tránsito', 'Cartera', 'Deudas', 'Otro'];
+/** Las 6 áreas de servicio de la landing (Services.tsx usa estos mismos nombres) + Otro */
+export const MOTIVOS = [
+  'Centrales de riesgo',
+  'Insolvencia y deudas',
+  'Reestructuración',
+  'Procesos y embargos',
+  'Derecho laboral',
+  'Familia y tránsito',
+  'Otro',
+];
 
 export async function seed(prisma: PrismaClient, log: (msg: string) => void = console.log) {
   for (const [sortOrder, name] of MOTIVOS.entries()) {
