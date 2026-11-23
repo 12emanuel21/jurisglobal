@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Bot, Headset, Loader2, MessagesSquare, RefreshCw, Send, User } from 'lucide-react';
+import { ArrowLeft, Bot, Headset, Loader2, MessagesSquare, RefreshCw, RotateCcw, Send, User } from 'lucide-react';
 import { apiJson } from '@/lib/api';
 import { formatDateTime, formatListDate, formatPhone } from '@/lib/format';
 import { usePanelEvents } from '@/lib/realtime';
@@ -14,6 +14,7 @@ const MAX_MESSAGE_LENGTH = 4096;
 const SYSTEM_LABELS: Record<string, string> = {
   '[SYSTEM_BOT_PAUSED]': '👤 Bot pausado: el equipo atiende este chat',
   '[SYSTEM_BOT_RESUMED]': '🤖 Bot reactivado',
+  '[SYSTEM_BOT_RESET]': '🔄 Bot reiniciado por el equipo: el próximo mensaje recibe el saludo',
   '[SYSTEM_OPT_OUT]': '🚫 Baja registrada: la persona pidió no recibir más mensajes automáticos',
 };
 const systemLabel = (message: string | null) => SYSTEM_LABELS[message ?? ''] ?? `⚙️ ${message ?? ''}`;
@@ -69,6 +70,7 @@ export default function ConversationsPage() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [togglingBot, setTogglingBot] = useState(false);
+  const [resettingBot, setResettingBot] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const selectedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -185,6 +187,22 @@ export default function ConversationsPage() {
     }
   };
 
+  /** Reinicia el flujo del bot (estado y datos temporales); el historial se conserva */
+  const resetBot = async () => {
+    const id = selectedId;
+    if (!id) return;
+    setResettingBot(true);
+    setSendError(null);
+    try {
+      await apiJson(`/conversations/${id}/reset-bot`, { method: 'POST' }, 'No se pudo reiniciar el bot');
+      await loadChat(id);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'No se pudo reiniciar el bot');
+    } finally {
+      setResettingBot(false);
+    }
+  };
+
   const selected = conversations.find((c) => c.id === selectedId);
   const title = (c: Conversation) => c.displayName || formatPhone(c.waId);
 
@@ -298,6 +316,19 @@ export default function ConversationsPage() {
                     {togglingBot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : status.botPaused ? <Headset className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
                     <span className="hidden sm:inline">{status.botPaused ? '👤 Atiende el equipo (bot pausado)' : '🤖 Bot activo'}</span>
                     <span className="sm:hidden">{status.botPaused ? '👤 Humano' : '🤖 Bot'}</span>
+                  </button>
+                )}
+                {status && (
+                  <button
+                    type="button"
+                    onClick={() => void resetBot()}
+                    disabled={resettingBot}
+                    title="Reinicia el flujo del bot en este chat: el próximo mensaje de la persona recibe el saludo (el historial se conserva)"
+                    aria-label="Reiniciar bot"
+                    className="tap inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-600/60 px-3 text-xs font-bold text-slate-300 transition hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {resettingBot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    <span className="hidden md:inline">Reiniciar bot</span>
                   </button>
                 )}
               </div>

@@ -10,6 +10,8 @@ export const META_SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Marcadores visibles en el historial (author SYSTEM) */
 export const BOT_PAUSED_MARKER = '[SYSTEM_BOT_PAUSED]';
 export const BOT_RESUMED_MARKER = '[SYSTEM_BOT_RESUMED]';
+/** El equipo reinició el flujo del bot desde el Inbox (el próximo mensaje recibe el saludo) */
+export const BOT_RESET_MARKER = '[SYSTEM_BOT_RESET]';
 
 export interface HandoverState {
   botPaused: boolean;

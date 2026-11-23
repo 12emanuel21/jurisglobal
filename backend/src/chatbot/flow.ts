@@ -8,6 +8,11 @@ import { toColombianPhone } from '../common/phone';
  *   IDLE → ASK_CONSENT → ASK_NAME → ASK_EMAIL → (ASK_PHONE) → ASK_MOTIVO → DONE
  *   ASK_CONSENT + «No acepto» → IDLE (sin lead) · STOP en cualquier paso → OPTED_OUT
  *
+ * El saludo pide el nombre completo y la consulta: si la persona los escribe antes de tocar
+ * «Acepto», se guardan en la sesión y, tras autorizar, el bot salta directo al correo.
+ * Sesión: tras SESSION_TTL_MS sin mensajes, la conversación vuelve a empezar (patrón de KovalCloud:
+ * el historial sigue en el Inbox, solo se descarta el estado y los datos temporales).
+ *
  * ASK_PHONE solo aparece si el número de WhatsApp no es de Colombia (el lead exige un número
  * colombiano para que el asesor pueda llamar).
  */
@@ -35,10 +40,20 @@ export interface FlowData {
   aiAnswers?: number;
   /** En DONE: ya se recordó una vez que los datos están registrados */
   doneReminded?: boolean;
+  /** Lo que la persona contó que necesita (va como nota del lead) */
+  need?: string;
 }
 
-/** Sin mensajes durante este tiempo, la conversación vuelve a empezar (salvo la baja, que es permanente) */
-export const FLOW_RESET_MS = 24 * 60 * 60 * 1000;
+/**
+ * Sesión del bot: tras 15 minutos sin mensajes (de nadie: persona, bot, asesor o campaña), quien
+ * vuelve a escribir empieza de cero con el saludo. La baja (OPTED_OUT) es permanente y no se reinicia.
+ */
+export const SESSION_TTL_MS = 15 * 60 * 1000;
+
+/** ¿Venció la sesión? Más de `ttlMs` entre la última interacción y este mensaje */
+export function isSessionExpired(previousAt: Date | null | undefined, now: Date, ttlMs = SESSION_TTL_MS): boolean {
+  return Boolean(previousAt) && now.getTime() - previousAt!.getTime() > ttlMs;
+}
 /** Respuestas de Gemini por sesión; después se usan las respuestas fijas */
 export const MAX_AI_ANSWERS_PER_SESSION = 6;
 
@@ -105,6 +120,17 @@ export function parseConsentAnswer(text: string, interactiveId: string | null): 
   return null;
 }
 
+/**
+ * «Sí, soy Ana Pérez» / «Acepto. Me llamo…»: autorización escrita seguida de más texto. Devuelve la
+ * respuesta del primer fragmento y el resto (para buscar el nombre). null si no empieza así.
+ */
+export function splitLeadingConsent(text: string): { answer: 'yes' | 'no'; rest: string } | null {
+  const m = /^\s*([^,.;:\n!]+)[,.;:\n!]+\s*([\s\S]+)$/.exec(text);
+  if (!m) return null;
+  const answer = parseConsentAnswer(m[1], null);
+  return answer ? { answer, rest: m[2].trim() } : null;
+}
+
 const QUESTION_START =
   /^(cuanto|cuanta|cuantos|cuantas|donde|como|que|cual|cuales|quien|quienes|cuando|por que|porque|para que|puedo|pueden|podrian|podria|me pueden|me podrian|me ayudan|ayuda|necesito|quiero saber|quisiera saber|tengo una (pregunta|duda|consulta)|tienen|hacen|atienden|ofrecen|manejan|llevan|es posible|hay|cobran|aceptan|trabajan)\b/;
 
@@ -112,6 +138,17 @@ const QUESTION_START =
 export function looksLikeQuestion(text: string): boolean {
   if (/[¿?]/.test(text)) return true;
   return QUESTION_START.test(normalizeText(text));
+}
+
+const DIRECT_QUESTION =
+  /^(cuanto|cuanta|cuantos|cuantas|donde|como|que|cual|cuales|quien|quienes|cuando|por que|para que|puedo|pueden|podrian|podria|me pueden|me podrian|tienen|hacen|atienden|ofrecen|manejan|llevan|es posible|hay|cobran|aceptan|trabajan)\b/;
+
+/**
+ * Pregunta directa (para la IA): con signos de interrogación o empezando por cuánto, dónde, cómo…
+ * «Necesito ayuda con un embargo» NO es una pregunta: es la consulta y se guarda.
+ */
+export function isDirectQuestion(text: string): boolean {
+  return /[¿?]/.test(text) || DIRECT_QUESTION.test(normalizeText(text));
 }
 
 /** Palabras que delatan una petición, no un nombre ("Me ayudan con un embargo") */
@@ -170,6 +207,108 @@ export function parseFullName(text: string): string | null {
   if (words.length > 6 || NOT_A_NAME_ALONE.has(normalizeText(name))) return null;
   if (name === name.toLocaleLowerCase('es-CO') || name === name.toLocaleUpperCase('es-CO')) name = titleCase(name);
   return name;
+}
+
+/** Saludos al inicio del mensaje ("Hola, buenas tardes.") */
+const LEADING_GREETING =
+  /^(hola+|holi|buen[oa]s?(\s+(d[ií]as|tardes|noches))?|buen\s+d[ií]a|saludos|qu[eé]\s+tal|cordial\s+saludo|muy\s+buen[oa]s?(\s+(d[ií]as|tardes|noches))?)(?=[\s,.!¡;:]|$)[\s,.!¡;:]*/i;
+/** Presentación: "soy", "me llamo", "mi nombre es", "les habla"… */
+const NAME_INTRO =
+  /^(yo\s+)?(me\s+llamo|mi\s+nombre\s+(completo\s+)?es|soy|habla|le[s]?\s+habla|te\s+habla|le[s]?\s+escribe|te\s+escribe|nombre\s*:)\s*/i;
+/** Palabras con las que empieza la consulta: aquí termina el nombre */
+const NEED_START = new Set([
+  'necesito',
+  'necesitaria',
+  'quiero',
+  'quisiera',
+  'queria',
+  'tengo',
+  'tenemos',
+  'me',
+  'mi',
+  'mis',
+  'nos',
+  'estoy',
+  'estamos',
+  'busco',
+  'buscamos',
+  'requiero',
+  'deseo',
+  'solicito',
+  'para',
+  'por',
+  'porque',
+  'sobre',
+  'con',
+  'que',
+  'es',
+  'un',
+  'una',
+  'el',
+  'en',
+  'ayuda',
+  'consulta',
+  'y',
+  'e',
+  'tema',
+  'caso',
+  'le',
+  'les',
+  'te',
+  'vengo',
+  'escribo',
+  'llamo',
+]);
+const NAME_PARTICLES = new Set(['de', 'del', 'la', 'las', 'los']);
+const NAME_TOKEN = /^\p{L}[\p{L}'-]*$/u;
+
+/**
+ * Nombre y consulta en un mismo mensaje (respuesta al saludo):
+ *   "Ana María Pérez" → nombre · "Soy Ana Pérez y necesito ayuda con un embargo" → nombre + consulta
+ *   "Hola, mi nombre es Carlos Gómez, me embargaron la cuenta" → nombre + consulta
+ *   "Necesito ayuda con Datacrédito" → solo consulta.
+ * Con `requireIntro` solo se toma el nombre si hay una presentación explícita ("soy", "me llamo"),
+ * para no confundir un primer «Hola, buenas tardes» con un nombre.
+ */
+export function parseNameAndNeed(
+  text: string,
+  opts: { requireIntro?: boolean } = {},
+): { name: string | null; need: string | null } {
+  let rest = (text ?? '').replace(/[ \t]+/g, ' ').trim();
+  for (let i = 0; i < 3 && LEADING_GREETING.test(rest); i++) rest = rest.replace(LEADING_GREETING, '').trim();
+  const intro = NAME_INTRO.exec(rest);
+  if (intro) rest = rest.slice(intro[0].length).trim();
+  const cleanNeed = (value: string) => {
+    const need = value
+      .replace(/^[\s,.;:!¡\-–—]+/, '')
+      .replace(/^(y|e)\s+/i, '')
+      .trim();
+    // Una consulta tiene al menos 3 palabras o un término del tema («embargo», «deuda»…): «de nuevo» no lo es
+    const form = normalizeText(need);
+    return form.split(' ').filter(Boolean).length >= 3 || NOT_A_NAME.test(form) ? need.slice(0, 500) : null;
+  };
+  if (!rest) return { name: null, need: null };
+  if (opts.requireIntro && !intro) return { name: null, need: cleanNeed(rest) };
+
+  // El nombre llega hasta el primer signo, salto de línea o palabra de consulta
+  const boundary = /[\n,.;:!¿?()]|\s[-–—]\s/.exec(rest);
+  const segment = boundary ? rest.slice(0, boundary.index) : rest;
+  const words = segment.split(' ').filter(Boolean);
+  const nameWords: string[] = [];
+  for (const w of words) {
+    const form = normalizeText(w);
+    if (NEED_START.has(form) || !NAME_TOKEN.test(w)) break;
+    nameWords.push(w);
+  }
+  while (nameWords.length && NAME_PARTICLES.has(normalizeText(nameWords[nameWords.length - 1]))) nameWords.pop();
+  // Un nombre no empieza por «de», «la»… («Hola de nuevo» no es un nombre)
+  if (nameWords.length && NAME_PARTICLES.has(normalizeText(nameWords[0]))) nameWords.length = 0;
+  const candidate = nameWords.join(' ');
+  const name =
+    candidate && nameWords.length <= 6 && !NOT_A_NAME.test(normalizeText(candidate)) ? parseFullName(candidate) : null;
+  if (!name) return { name: null, need: cleanNeed(rest) };
+  // Las palabras del segmento van separadas por un espacio: el nombre es un prefijo exacto
+  return { name, need: cleanNeed(rest.slice(candidate.length)) };
 }
 
 /** Correo válido dentro del texto ("mi correo es Ana@Correo.co") o null */

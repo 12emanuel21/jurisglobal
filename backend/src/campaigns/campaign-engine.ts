@@ -20,7 +20,7 @@ import {
   type SendWindowRule,
 } from '../compliance/send-window';
 import { applyOptOut } from '../compliance/opt-out-core';
-import { FLOW_RESET_MS } from '../chatbot/flow';
+import { SESSION_TTL_MS } from '../chatbot/flow';
 import { WhatsAppApiError, WhatsAppCloudApi, WhatsAppNotConfiguredError } from '../whatsapp/cloud-api.client';
 import { CampaignQueue } from './campaign-queue';
 import { QUALITY_PAUSE_REASON, QualityGuard } from './quality-guard';
@@ -212,7 +212,7 @@ export class CampaignEngine {
   }
 
   /**
-   * La plantilla enviada queda en el historial del Inbox. Si la conversación llevaba más de 24 h
+   * La plantilla enviada queda en el historial del Inbox. Si la conversación llevaba más de 15 min
    * quieta, el flujo del bot vuelve al inicio: la respuesta a la campaña entra limpia al flujo guiado.
    */
   private async logInInbox(
@@ -227,7 +227,7 @@ export class CampaignEngine {
     const stale =
       existing &&
       existing.flowState !== 'OPTED_OUT' &&
-      now.getTime() - existing.lastMessageAt.getTime() > FLOW_RESET_MS;
+      now.getTime() - existing.lastMessageAt.getTime() > SESSION_TTL_MS;
     const conversation = existing
       ? await tx.conversation.update({
           where: { id: existing.id },

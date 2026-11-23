@@ -60,6 +60,13 @@ export class ConversationsController {
     return this.conversations.sendManual(id, dto.text, user.id);
   }
 
+  /** Reinicia el flujo del bot de este chat (el próximo mensaje de la persona recibe el saludo) */
+  @Post(':id/reset-bot')
+  @HttpCode(HttpStatus.OK)
+  resetBot(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.conversations.resetBot(id, user.id);
+  }
+
   @Patch(':id/handover')
   @HttpCode(HttpStatus.OK)
   handover(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetHandoverDto) {

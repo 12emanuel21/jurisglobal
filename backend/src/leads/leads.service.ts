@@ -30,6 +30,8 @@ export interface SubmitLeadInput {
    * otorgadas al mismo teléfono y aún sin lead.
    */
   recordedConsentIds?: string[];
+  /** Lo que la persona contó que necesita (WhatsApp): queda como nota del lead */
+  message?: string;
 }
 
 export interface SubmitLeadResult {
@@ -215,6 +217,13 @@ export class LeadsService {
                 ? `Datos recibidos que difieren del registro: ${differences.join('; ')}.`
                 : 'Mismos datos del registro.'),
           },
+        });
+      }
+
+      const message = input.message?.replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (message) {
+        await tx.leadNote.create({
+          data: { leadId, body: `Consulta contada por ${CHANNEL_LABEL[input.channel]}: «${message}»` },
         });
       }
 

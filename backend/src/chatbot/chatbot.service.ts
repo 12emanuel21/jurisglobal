@@ -21,21 +21,23 @@ import {
 import {
   CONSENT_NO_ID,
   CONSENT_YES_ID,
-  FLOW_RESET_MS,
   MAX_AI_ANSWERS_PER_SESSION,
   MOTIVO_ID_PREFIX,
   extractColombianPhone,
   extractEmail,
   fallbackAnswer,
+  isDirectQuestion,
   isRequestInsteadOfName,
   isRestartCommand,
+  isSessionExpired,
   isStopCommand,
   looksLikeQuestion,
   matchMotivo,
   parseConsentAnswer,
   parseFlowState,
-  parseFullName,
+  parseNameAndNeed,
   sanitizeAiReply,
+  splitLeadingConsent,
   visibleConsultationPrice,
   type FlowData,
   type FlowState,
@@ -146,12 +148,13 @@ export class ChatbotService {
     let state = parseFlowState(conv.flowState);
     let data: FlowData = isPlainObject(conv.flowData) ? { ...(conv.flowData as FlowData) } : {};
 
-    // Sesión vencida: empieza limpio (la baja es permanente y no se reinicia sola)
-    if (
-      state !== 'OPTED_OUT' &&
-      msg.previousMessageAt &&
-      now.getTime() - msg.previousMessageAt.getTime() > FLOW_RESET_MS
-    ) {
+    // Sesión vencida (15 min sin mensajes): empieza de cero con el saludo y sin datos temporales.
+    // El historial sigue en el Inbox; la baja es permanente y no se reinicia sola.
+    if (state !== 'OPTED_OUT' && isSessionExpired(msg.previousMessageAt, now)) {
+      if (state !== 'IDLE')
+        this.logger.log(
+          `🕒 Sesión nueva para ${maskPhone(conv.waId)}: más de 15 min sin mensajes, estado ${state} descartado`,
+        );
       state = 'IDLE';
       data = {};
     }
@@ -224,15 +227,44 @@ export class ChatbotService {
 
   // ─────────────────────────── Pasos ───────────────────────────
 
+  /**
+   * Saludo (pide nombre completo y consulta) + autorización. Si el primer mensaje ya trae una
+   * presentación explícita («Soy Ana Pérez…»), el nombre y la consulta quedan guardados.
+   */
   private async onIdle(ctx: StepContext): Promise<StepOutcome> {
     const parts: string[] = [ctx.s['bot.greeting']];
     const ack = mediaAck(ctx.msg.mediaKind);
     if (ack) parts.push(ack);
-    if (ctx.typed && looksLikeQuestion(ctx.typed)) parts.push(await this.answer(ctx, 'ASK_CONSENT'));
+    const intro = ctx.typed ? parseNameAndNeed(ctx.typed, { requireIntro: true }) : { name: null, need: null };
+    if (ctx.typed && looksLikeQuestion(ctx.typed) && !intro.name) parts.push(await this.answer(ctx, 'ASK_CONSENT'));
+    const data: FlowData = { aiAnswers: ctx.data.aiAnswers, ...this.captured(intro) };
+    parts.push(
+      data.fullName ? `Gracias, ${firstNameOf(data.fullName)} 🤝. Antes de continuar:` : 'Antes de continuar:',
+    );
+    return { state: 'ASK_CONSENT', data, replies: withPrefix(parts.join('\n\n'), this.consentReply(ctx.s)) };
+  }
+
+  /** Nombre y consulta capturados (solo los campos encontrados) */
+  private captured(parsed: { name: string | null; need: string | null }): Pick<FlowData, 'fullName' | 'need'> {
+    return { ...(parsed.name ? { fullName: parsed.name } : {}), ...(parsed.need ? { need: parsed.need } : {}) };
+  }
+
+  /** Tras «Acepto»: si ya dio el nombre, directo al correo */
+  private afterConsent(ctx: StepContext, data: FlowData): StepOutcome {
+    if (data.fullName)
+      return {
+        state: 'ASK_EMAIL',
+        data,
+        replies: [
+          text(
+            `¡Gracias por autorizarnos, ${firstNameOf(data.fullName)}! ✅\n\n${this.stepPrompt('ASK_EMAIL', ctx).body}`,
+          ),
+        ],
+      };
     return {
-      state: 'ASK_CONSENT',
-      data: { aiAnswers: ctx.data.aiAnswers },
-      replies: withPrefix(parts.join('\n\n'), this.consentReply(ctx.s)),
+      state: 'ASK_NAME',
+      data,
+      replies: [text(`¡Gracias por autorizarnos! ✅\n\n${this.stepPrompt('ASK_NAME', ctx).body}`)],
     };
   }
 
@@ -241,8 +273,11 @@ export class ChatbotService {
     const consent = this.consentReply(s);
     if (msg.mediaKind === 'AUDIO') return stay('ASK_CONSENT', data, withPrefix(RETRY.consentByVoice, consent));
 
-    const answer = parseConsentAnswer(typed, msg.interactiveId);
+    // «Sí, soy Ana Pérez»: autorización escrita seguida del nombre
+    const leading = msg.interactiveId ? null : splitLeadingConsent(typed);
+    const answer = parseConsentAnswer(typed, msg.interactiveId) ?? leading?.answer ?? null;
     if (answer === 'yes') {
+      const extra = leading?.rest ? this.captured(parseNameAndNeed(leading.rest)) : {};
       const record = await this.prisma.consent.create({
         data: {
           contactId: msg.conversation.contactId,
@@ -256,11 +291,7 @@ export class ChatbotService {
           evidence: this.consentEvidence(msg),
         },
       });
-      return {
-        state: 'ASK_NAME',
-        data: { ...data, consentId: record.id },
-        replies: [text(`¡Gracias por autorizarnos! ✅\n\n${this.stepPrompt('ASK_NAME', ctx).body}`)],
-      };
+      return this.afterConsent(ctx, { ...data, ...extra, consentId: record.id });
     }
     if (answer === 'no') {
       // Se deja constancia de la negativa solo con el seudónimo: sin teléfono ni datos
@@ -280,6 +311,20 @@ export class ChatbotService {
 
     const ack = mediaAck(msg.mediaKind);
     if (ack) return stay('ASK_CONSENT', data, withPrefix(ack, consent));
+    // Respondió al saludo con su nombre (y su consulta) antes de autorizar: se guarda y se pide la autorización
+    const parsed = typed && !msg.interactiveId ? parseNameAndNeed(typed) : { name: null, need: null };
+    if (parsed.name || (parsed.need && !isDirectQuestion(typed))) {
+      const next = { ...data, ...this.captured(parsed) };
+      const thanks = parsed.name ? `Gracias, ${firstNameOf(parsed.name)} 🤝.` : 'Gracias por contarnos 🤝.';
+      return stay(
+        'ASK_CONSENT',
+        next,
+        withPrefix(
+          `${thanks} Para registrar tus datos y que un asesor te contacte, primero necesitamos tu autorización:`,
+          consent,
+        ),
+      );
+    }
     if (typed && looksLikeQuestion(typed))
       return stay('ASK_CONSENT', data, withPrefix(await this.answer(ctx, 'ASK_CONSENT'), consent));
     return stay('ASK_CONSENT', data, withPrefix(RETRY.consent, consent));
@@ -289,14 +334,20 @@ export class ChatbotService {
     const { msg, typed, data } = ctx;
     const early = this.commonChecks(ctx, 'ASK_NAME');
     if (early) return early;
-    if (isRequestInsteadOfName(typed)) return this.offFlow(ctx, 'ASK_NAME');
-    const fullName = parseFullName(typed);
-    if (!fullName) return stay('ASK_NAME', data, [text(msg.mediaKind === 'AUDIO' ? RETRY.voice : RETRY.name)]);
-    const firstName = fullName.split(' ')[0];
+    // Nombre y consulta en un mismo mensaje («Soy Ana Pérez y necesito ayuda con un embargo»)
+    const { name: fullName, need } = parseNameAndNeed(typed);
+    if (!fullName) {
+      if (isDirectQuestion(typed) || (!need && isRequestInsteadOfName(typed))) return this.offFlow(ctx, 'ASK_NAME');
+      if (need)
+        return stay('ASK_NAME', { ...data, need }, [
+          text('Gracias por contarnos 🤝. ¿Me indicas tu *nombre completo*?'),
+        ]);
+      return stay('ASK_NAME', data, [text(msg.mediaKind === 'AUDIO' ? RETRY.voice : RETRY.name)]);
+    }
     return {
       state: 'ASK_EMAIL',
-      data: { ...data, fullName },
-      replies: [text(`Gracias, ${firstName}. ${this.stepPrompt('ASK_EMAIL', ctx).body}`)],
+      data: { ...data, fullName, ...(need ? { need } : {}) },
+      replies: [text(`Gracias, ${firstNameOf(fullName)}. ${this.stepPrompt('ASK_EMAIL', ctx).body}`)],
     };
   }
 
@@ -340,7 +391,11 @@ export class ChatbotService {
     }
     if (!data.fullName || !data.email) {
       // Estado incoherente (p. ej. datos editados a mano): se retoma desde el nombre
-      return { state: 'ASK_NAME', data: { consentId: data.consentId }, replies: [this.stepPrompt('ASK_NAME', ctx)] };
+      return {
+        state: 'ASK_NAME',
+        data: { consentId: data.consentId, need: data.need },
+        replies: [this.stepPrompt('ASK_NAME', ctx)],
+      };
     }
 
     const phone = data.phone ?? msg.conversation.waId;
@@ -354,6 +409,7 @@ export class ChatbotService {
         consents: { contactAndDataProcessing: true },
         evidence: { wamid: msg.waMessageId, consentId: data.consentId ?? null },
         recordedConsentIds: data.consentId ? [data.consentId] : [],
+        message: data.need,
       });
       const summary = [
         'Estos son los datos que registramos:',
@@ -438,7 +494,7 @@ export class ChatbotService {
       case 'ASK_CONSENT':
         return this.consentReply(ctx.s);
       case 'ASK_NAME':
-        return text('¿Cuál es tu *nombre completo*?');
+        return text('Indícame tu *nombre completo* y, si quieres, cuéntame *en qué podemos ayudarte*. 🤝');
       case 'ASK_EMAIL':
         return text('¿Cuál es tu *correo electrónico*?');
       case 'ASK_PHONE':
@@ -568,6 +624,8 @@ interface StepOutcome {
 }
 
 const stay = (state: FlowState, data: FlowData, replies: Reply[]): StepOutcome => ({ state, data, replies });
+
+const firstNameOf = (fullName: string) => fullName.split(' ')[0];
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);

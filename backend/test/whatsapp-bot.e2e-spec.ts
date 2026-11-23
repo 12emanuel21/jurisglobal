@@ -16,6 +16,7 @@ import { WebhookProcessor } from '../src/whatsapp/webhook.processor';
 import { chatMediaPath } from '../src/whatsapp/media';
 import { resetDatabase, waitFor } from './helpers';
 import { MOTIVOS } from '../src/scripts/seed';
+import { AuthService } from '../src/auth/auth.service';
 
 // Gemini simulado: se ve exactamente qué prompt y qué pregunta le llegan
 jest.mock('ai', () => ({ ...jest.requireActual('ai'), generateObject: jest.fn(), generateText: jest.fn() }));
@@ -196,7 +197,8 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
     await say('Hola');
     expect(last()).toMatchObject({ kind: 'buttons', to: PHONE });
     expect(last().body).toContain('JurisGlobal');
-    expect(last().body).toContain('llamada o correo');
+    expect(last().body).toContain('Mi nombre es *Alexandra Betancourt*, secretaria ejecutiva');
+    expect(last().body).toContain('indícame tu *nombre completo*');
     expect(last().body).toContain('¿Nos autorizas?');
     expect(last().body).toContain(`Aviso de Privacidad: ${site()}/legal/privacidad`);
     expect(last().options).toEqual([
@@ -332,7 +334,9 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
       // Minimización: a Gemini solo le llega la pregunta
       expect(args.messages).toEqual([{ role: 'user', content: '¿Cuánto cuesta la consulta?' }]);
 
-      expect(last().body).toBe('Un asesor te confirmará las condiciones.\n\n¿Cuál es tu *nombre completo*?');
+      expect(last().body).toBe(
+        'Un asesor te confirmará las condiciones.\n\nIndícame tu *nombre completo* y, si quieres, cuéntame *en qué podemos ayudarte*. 🤝',
+      );
       const conv = await conversation();
       expect(conv.flowState).toBe('ASK_NAME');
       expect(conv.flowData).not.toHaveProperty('fullName');
@@ -364,7 +368,9 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
       await say('¿cuánto cobran?');
 
       expect(generateObjectMock).toHaveBeenCalledTimes(3); // cadena de modelos de respaldo
-      expect(last().body).toBe('La asesoría inicial tiene un valor de $100.000 COP.\n\n¿Cuál es tu *nombre completo*?');
+      expect(last().body).toBe(
+        'La asesoría inicial tiene un valor de $100.000 COP.\n\nIndícame tu *nombre completo* y, si quieres, cuéntame *en qué podemos ayudarte*. 🤝',
+      );
       expect((await conversation()).flowState).toBe('ASK_NAME');
     });
 
@@ -584,6 +590,102 @@ describe('Etapa 4 · Chatbot de WhatsApp por webhook firmado (integración)', ()
       expect(last().body).toContain('Recibimos tu archivo');
       expect(last().body).toContain('¿Cuál es tu *correo electrónico*?');
       expect((await conversation()).flowState).toBe('ASK_EMAIL');
+    });
+  });
+
+  describe('sesión de 15 min y saludo de Alexandra', () => {
+    const minutesAgo = (min: number) => new Date(Date.now() - min * 60_000);
+
+    it('tras más de 15 min sin mensajes vuelve al saludo y descarta el avance; antes de 15 min continúa', async () => {
+      await reach('ASK_EMAIL'); // ya dio el nombre
+      await prisma.conversation.update({ where: { waId: PHONE }, data: { lastMessageAt: minutesAgo(14) } });
+      await say('ana@correo.co');
+      expect((await conversation()).flowState).toBe('ASK_MOTIVO'); // 14 min: misma sesión
+
+      await prisma.conversation.update({ where: { waId: PHONE }, data: { lastMessageAt: minutesAgo(16) } });
+      await say('Hola de nuevo');
+      expect(last().body).toContain('Alexandra Betancourt');
+      expect(last().kind).toBe('buttons');
+      const c = await conversation();
+      expect(c.flowState).toBe('ASK_CONSENT');
+      expect(c.flowData).toEqual({}); // sin nombre, correo ni autorización de la sesión anterior
+      expect(await prisma.message.count({ where: { conversationId: c.id } })).toBeGreaterThan(6); // historial intacto
+    });
+
+    it('nombre y consulta antes de tocar «Acepto»: se guardan y tras autorizar pasa directo al correo', async () => {
+      await say('Buenas tardes');
+      await say('Soy Ana María Pérez y tengo un embargo en mi cuenta de ahorros');
+      expect(last().kind).toBe('buttons');
+      expect(last().body).toMatch(/^Gracias, Ana 🤝\. Para registrar tus datos/);
+      expect((await conversation()).flowData).toMatchObject({
+        fullName: 'Ana María Pérez',
+        need: 'tengo un embargo en mi cuenta de ahorros',
+      });
+      await tap('consent:yes', 'Acepto');
+      expect((await conversation()).flowState).toBe('ASK_EMAIL');
+      expect(last().body).toBe('¡Gracias por autorizarnos, Ana! ✅\n\n¿Cuál es tu *correo electrónico*?');
+      await say('ana@correo.co');
+      await pick(`motivo:${await motivoId('Procesos y embargos')}`, 'Procesos y embargos');
+      const lead = await prisma.lead.findUniqueOrThrow({ where: { phone: PHONE }, include: { notes: true } });
+      expect(lead.fullName).toBe('Ana María Pérez');
+      expect(lead.notes.map((n) => n.body)).toContain(
+        'Consulta contada por WhatsApp: «tengo un embargo en mi cuenta de ahorros»',
+      );
+    });
+
+    it('«Sí, soy Luis Gómez» autoriza y toma el nombre; en ASK_NAME acepta nombre + consulta o solo la consulta', async () => {
+      await say('Hola');
+      await say('Sí, soy Luis Gómez');
+      expect(await prisma.consent.count({ where: { phoneHash: phoneHash(PHONE), granted: true } })).toBe(1);
+      expect((await conversation()).flowState).toBe('ASK_EMAIL');
+
+      const other = '573004445566';
+      await reach('ASK_NAME', other);
+      await say('Necesito ayuda con un reporte en Datacrédito', other);
+      expect(last().body).toBe('Gracias por contarnos 🤝. ¿Me indicas tu *nombre completo*?');
+      expect((await conversation(other)).flowState).toBe('ASK_NAME');
+      await say('Carlos Gómez', other);
+      expect((await conversation(other)).flowData).toMatchObject({
+        fullName: 'Carlos Gómez',
+        need: 'Necesito ayuda con un reporte en Datacrédito',
+      });
+      expect((await conversation(other)).flowState).toBe('ASK_EMAIL');
+    });
+
+    it('«No acepto» descarta el nombre y la consulta que escribió', async () => {
+      await say('Hola');
+      await say('Me llamo Luis Gómez, tengo una deuda');
+      await tap('consent:no', 'No acepto');
+      const c = await conversation();
+      expect(c.flowState).toBe('IDLE');
+      expect(c.flowData).not.toHaveProperty('fullName');
+      expect(c.flowData).not.toHaveProperty('need');
+    });
+
+    it('el equipo reinicia el bot desde el Inbox (queda en la bitácora); una baja no se deshace', async () => {
+      const user = await prisma.user.create({
+        data: { email: 'asesora@jurisglobal.test', role: 'ASESOR', name: 'Laura Asesora', passwordHash: 'x' },
+      });
+      const token = await app.get(AuthService).issueAccessToken(user);
+      await reach('ASK_EMAIL');
+      const c = await conversation();
+      const res = await request(app.getHttpServer())
+        .post(`/conversations/${c.id}/reset-bot`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(res.body).toMatchObject({ botPaused: false });
+      expect(await conversation()).toMatchObject({ flowState: 'IDLE', flowData: {} });
+      expect(await prisma.message.count({ where: { conversationId: c.id, body: '[SYSTEM_BOT_RESET]' } })).toBe(1);
+      expect(await prisma.auditLog.count({ where: { action: 'conversation.bot_reset', entityId: c.id } })).toBe(1);
+      await say('Hola');
+      expect(last().body).toContain('Alexandra Betancourt');
+
+      await say('STOP');
+      await request(app.getHttpServer())
+        .post(`/conversations/${c.id}/reset-bot`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(400);
+      expect((await conversation()).flowState).toBe('OPTED_OUT');
     });
   });
 

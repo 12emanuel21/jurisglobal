@@ -9,10 +9,12 @@ import {
 import { createReadStream, promises as fs } from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { AuditService } from '../audit/audit.service';
 import { WhatsAppApiError, WhatsAppCloudApi, WhatsAppNotConfiguredError } from '../whatsapp/cloud-api.client';
 import { chatMediaMime, chatMediaPath } from '../whatsapp/media';
 import {
   BOT_PAUSED_MARKER,
+  BOT_RESET_MARKER,
   BOT_RESUMED_MARKER,
   isOutsideServiceWindow,
   resolveHandover,
@@ -55,6 +57,7 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly cloudApi: WhatsAppCloudApi,
     private readonly realtime: RealtimeGateway,
+    private readonly audit: AuditService,
   ) {}
 
   private async findOrThrow(id: string) {
@@ -134,6 +137,41 @@ export class ConversationsService {
       ]);
       this.realtime.emitToPanel('conversation:updated', { conversationId: id });
     }
+    return this.status(id);
+  }
+
+  /**
+   * Reiniciar el flujo del bot desde el Inbox (patrón de KovalCloud: reinicio de contexto interno,
+   * sin comando público): estado y datos temporales a cero; el historial se conserva. La baja no se
+   * deshace: una persona que pidió STOP solo vuelve escribiendo INICIO.
+   */
+  async resetBot(id: string, userId: string) {
+    const c = await this.findOrThrow(id);
+    if (c.flowState === 'OPTED_OUT')
+      throw new BadRequestException(
+        'Esta persona pidió la baja (STOP): solo ella puede reactivar el bot escribiendo INICIO',
+      );
+    await this.prisma.$transaction([
+      this.prisma.conversation.update({ where: { id }, data: { flowState: 'IDLE', flowData: {} } }),
+      this.prisma.message.create({
+        data: {
+          conversationId: id,
+          direction: 'OUTBOUND',
+          author: 'SYSTEM',
+          type: 'system',
+          body: BOT_RESET_MARKER,
+          sentById: userId,
+        },
+      }),
+    ]);
+    await this.audit.record({
+      userId,
+      action: 'conversation.bot_reset',
+      entity: 'Conversation',
+      entityId: id,
+      data: { previousState: c.flowState },
+    });
+    this.realtime.emitToPanel('conversation:updated', { conversationId: id });
     return this.status(id);
   }
 

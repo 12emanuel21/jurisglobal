@@ -72,8 +72,9 @@ export const SETTING_DEFAULTS = {
   },
 
   /** Textos del bot (Etapa 4; editables en Configuración, Etapa 5). Formato de WhatsApp: *negrita* */
+  /** Saludo de Alexandra Betancourt, secretaria ejecutiva (pide nombre completo y consulta) */
   'bot.greeting':
-    '¡Hola! 👋 Te damos la bienvenida a *JurisGlobal*, Soluciones Jurídicas y Financieras. Te ayudaré a dejar tus datos para que un asesor se comunique contigo por llamada o correo.',
+    'Gracias por comunicarte con\n\n⚖️ *JurisGlobal — Soluciones Jurídicas y Financieras* ⚖️\n\nUn gusto saludarte. Mi nombre es *Alexandra Betancourt*, secretaria ejecutiva. Recibe una cordial bienvenida de parte de nuestra firma de abogados. 👋\n\nPara brindarte una atención personalizada, por favor indícame tu *nombre completo* y cuéntame *en qué podemos ayudarte hoy*. 🤝',
   'bot.declined':
     'Entendido, respetamos tu decisión. Sin tu autorización no podemos registrar tus datos por este medio. Si lo prefieres, puedes contactarnos por nuestros canales institucionales:',
   'bot.closing':

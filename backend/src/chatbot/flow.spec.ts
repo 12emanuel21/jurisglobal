@@ -16,7 +16,12 @@ import {
   parseConsentAnswer,
   parseFlowState,
   parseFullName,
+  parseNameAndNeed,
+  isDirectQuestion,
+  isSessionExpired,
+  SESSION_TTL_MS,
   sanitizeAiReply,
+  splitLeadingConsent,
   visibleConsultationPrice,
 } from './flow';
 
@@ -190,6 +195,84 @@ describe('chatbot/flow', () => {
       expect(prompt).toContain('Nunca digas que es gratis');
       expect(prompt).toMatch(/NUNCA des asesoría jurídica/);
       expect(prompt).toMatch(/1 o 2 frases cortas/);
+    });
+  });
+
+  describe('sesión de 15 minutos', () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 10, 23, 15, min));
+    it('vence tras más de 15 min sin mensajes', () => {
+      expect(SESSION_TTL_MS).toBe(15 * 60 * 1000);
+      expect(isSessionExpired(at(0), at(15))).toBe(false); // justo 15 min: sigue
+      expect(isSessionExpired(at(0), new Date(at(15).getTime() + 1))).toBe(true);
+      expect(isSessionExpired(null, at(30))).toBe(false); // primera vez: no hay sesión anterior
+    });
+  });
+
+  describe('nombre y consulta en un mismo mensaje', () => {
+    it.each([
+      ['Ana María Pérez', 'Ana María Pérez', null],
+      ['ana maria perez', 'Ana Maria Perez', null],
+      ['Soy Ana María Pérez y necesito ayuda con un embargo', 'Ana María Pérez', 'necesito ayuda con un embargo'],
+      [
+        'Hola, buenas tardes. Mi nombre es Carlos Gómez, me embargaron la cuenta',
+        'Carlos Gómez',
+        'me embargaron la cuenta',
+      ],
+      ['Carlos Gómez\nTengo un reporte en Datacrédito', 'Carlos Gómez', 'Tengo un reporte en Datacrédito'],
+      [
+        'Me llamo María de los Ángeles Ruiz. Tengo deudas con el banco',
+        'María de los Ángeles Ruiz',
+        'Tengo deudas con el banco',
+      ],
+      ['Pedro Ramírez tengo una fotomulta', 'Pedro Ramírez', 'tengo una fotomulta'],
+      [
+        'Buenos días, les escribe Laura Méndez - quisiera información de insolvencia',
+        'Laura Méndez',
+        'quisiera información de insolvencia',
+      ],
+    ])('«%s»', (text, name, need) => {
+      expect(parseNameAndNeed(text)).toEqual({ name, need });
+    });
+
+    it('sin nombre: solo la consulta (o nada si es un saludo)', () => {
+      expect(parseNameAndNeed('Necesito ayuda con Datacrédito')).toEqual({
+        name: null,
+        need: 'Necesito ayuda con Datacrédito',
+      });
+      expect(parseNameAndNeed('Me ayudan con un embargo')).toEqual({ name: null, need: 'Me ayudan con un embargo' });
+      expect(parseNameAndNeed('Banco de Bogotá me embargó')).toEqual({
+        name: null,
+        need: 'Banco de Bogotá me embargó',
+      });
+      expect(parseNameAndNeed('Hola, buenas tardes')).toEqual({ name: null, need: null });
+      expect(parseNameAndNeed('Hola')).toEqual({ name: null, need: null });
+      expect(parseNameAndNeed('Hola de nuevo')).toEqual({ name: null, need: null }); // no es una consulta
+    });
+
+    it('en el primer mensaje solo cuenta una presentación explícita', () => {
+      expect(parseNameAndNeed('Hola buenas tardes', { requireIntro: true }).name).toBeNull();
+      expect(parseNameAndNeed('Juan', { requireIntro: true }).name).toBeNull();
+      expect(parseNameAndNeed('Hola, soy Juan Díaz y tengo un embargo', { requireIntro: true })).toEqual({
+        name: 'Juan Díaz',
+        need: 'tengo un embargo',
+      });
+    });
+
+    it('pregunta directa (va a la IA) vs. consulta (se guarda)', () => {
+      expect(isDirectQuestion('¿Cuánto cuesta la asesoría?')).toBe(true);
+      expect(isDirectQuestion('Dónde están ubicados')).toBe(true);
+      expect(isDirectQuestion('Necesito ayuda con un embargo')).toBe(false);
+      expect(isDirectQuestion('Tengo un reporte en Datacrédito')).toBe(false);
+    });
+
+    it('«Sí, soy Ana Pérez»: autorización escrita seguida del nombre', () => {
+      expect(splitLeadingConsent('Sí, soy Ana Pérez')).toEqual({ answer: 'yes', rest: 'soy Ana Pérez' });
+      expect(splitLeadingConsent('Acepto. Me llamo Luis Gómez')).toEqual({
+        answer: 'yes',
+        rest: 'Me llamo Luis Gómez',
+      });
+      expect(splitLeadingConsent('Ana Pérez, tengo un embargo')).toBeNull();
+      expect(splitLeadingConsent('Acepto')).toBeNull(); // sin resto: lo resuelve parseConsentAnswer
     });
   });
 });

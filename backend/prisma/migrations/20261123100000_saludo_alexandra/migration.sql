@@ -1,0 +1,3 @@
+-- Saludo inicial del chatbot: Alexandra Betancourt, secretaria ejecutiva (pide nombre completo y consulta).
+-- Se actualiza el valor guardado (Configuración › Textos del bot lo sigue permitiendo editar).
+UPDATE "Setting" SET "value" = to_jsonb(E'Gracias por comunicarte con\n\n⚖️ *JurisGlobal — Soluciones Jurídicas y Financieras* ⚖️\n\nUn gusto saludarte. Mi nombre es *Alexandra Betancourt*, secretaria ejecutiva. Recibe una cordial bienvenida de parte de nuestra firma de abogados. 👋\n\nPara brindarte una atención personalizada, por favor indícame tu *nombre completo* y cuéntame *en qué podemos ayudarte hoy*. 🤝'::text) WHERE "key" = 'bot.greeting';
