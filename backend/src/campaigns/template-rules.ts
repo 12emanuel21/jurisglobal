@@ -85,6 +85,16 @@ export function hasOptOutOption(footer: string | null | undefined, buttons: Temp
   return buttons.some((b) => b.role === 'OPT_OUT') || footerHasOptOut(footer);
 }
 
+/** Estado que la sincronización pone a una plantilla que ya no existe en Meta (mismo nombre que usa Graph) */
+export const DELETED_IN_META = 'DELETED';
+
+/** Por qué una plantilla no aprobada no se puede usar */
+export function templateStatusProblem(status: string): string {
+  return status === DELETED_IN_META
+    ? 'La plantilla ya no existe en Meta (se eliminó en el administrador de WhatsApp)'
+    : 'La plantilla no está aprobada en Meta';
+}
+
 /**
  * Motivos por los que una plantilla no se puede usar para lanzar (vacío = apta). La falta de opción
  * de baja en la plantilla NO bloquea (ver templateWarnings): el chatbot procesa STOP/BAJA en
@@ -96,7 +106,7 @@ export function templateLaunchProblems(t: {
   buttons: TemplateButton[];
 }): string[] {
   const problems: string[] = [];
-  if (t.status !== 'APPROVED') problems.push('La plantilla no está aprobada en Meta');
+  if (t.status !== 'APPROVED') problems.push(templateStatusProblem(t.status));
   if (t.purpose === 'OPT_IN' && !t.buttons.some((b) => b.role === 'OPT_IN_ACCEPT'))
     problems.push('La plantilla de confirmación necesita un botón para aceptar (rol «Acepta»)');
   return problems;

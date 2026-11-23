@@ -242,6 +242,7 @@ describe('Etapa 6 · Masivos (integración)', () => {
     await resetDatabase(prisma);
     jest.clearAllMocks();
     cloudApi.getQualityRating.mockImplementation(() => Promise.resolve('GREEN'));
+    cloudApi.canSyncTemplates.mockReturnValue(false);
     cloudApi.sendTemplate.mockImplementation(() => Promise.resolve({ waMessageId: `wamid.camp.${++outSeq}` }));
     clock.current = TUESDAY_10AM;
     const settings = app.get(SettingsService);
@@ -1179,6 +1180,76 @@ describe('Etapa 6 · Masivos (integración)', () => {
 
   // ─────────────── Plantillas ───────────────
   describe('Plantillas (metadatos)', () => {
+    it('sincronizar: respeta el idioma de Meta (es_CO) y marca como eliminadas las que ya no existen en Meta', async () => {
+      const graph = (name: string, language: string, status = 'APPROVED') => ({
+        id: `meta-${name}`,
+        name,
+        language,
+        category: 'MARKETING',
+        status,
+        components: [{ type: 'BODY', text: 'Hola {{1}}, en JurisGlobal te acompañamos.' }],
+      });
+      const kept = await template({ name: 'cobro_preventivo', source: 'META' });
+      const manualEs = await template({ name: 'bienvenida', language: 'es', source: 'MANUAL' });
+      cloudApi.canSyncTemplates.mockReturnValue(true);
+      cloudApi.listTemplates.mockResolvedValueOnce([
+        graph('cobro_preventivo', 'es_CO'),
+        graph('mejora_vida_crediticia', 'es_CO', 'PENDING'),
+      ]);
+      const res = await api().post('/admin/templates/sync').set(as(admin)).expect(200);
+      expect(res.body).toEqual({ created: 1, updated: 1, removed: 1, total: 2 });
+
+      const created = await prisma.messageTemplate.findFirstOrThrow({ where: { name: 'mejora_vida_crediticia' } });
+      expect(created).toMatchObject({ language: 'es_CO', status: 'PENDING', source: 'META' });
+      expect(await prisma.messageTemplate.findUniqueOrThrow({ where: { id: kept.id } })).toMatchObject({
+        status: 'APPROVED',
+      });
+      expect(await prisma.messageTemplate.findUniqueOrThrow({ where: { id: manualEs.id } })).toMatchObject({
+        status: 'DELETED',
+      });
+
+      // No se ofrece ni se puede usar
+      const list = await api().get('/admin/templates').set(as(admin)).expect(200);
+      const removed = list.body.items.find((t: { id: string }) => t.id === manualEs.id);
+      expect(removed.problems[0]).toMatch(/ya no existe en Meta/);
+      await contact('DOCUMENTED');
+      const launch = await api()
+        .post('/admin/campaigns')
+        .set(as(admin))
+        .send({ name: 'Con plantilla borrada', templateId: manualEs.id, audience: { type: 'all' } })
+        .expect(400);
+      expect(launch.body.message).toMatch(/ya no existe en Meta/);
+      const test = await api()
+        .post('/admin/campaigns/test-send')
+        .set(as(admin))
+        .send({ templateId: manualEs.id, phone: '3001112233', variables: ['Ana'] })
+        .expect(400);
+      expect(test.body.message).toMatch(/ya no existe en Meta/);
+
+      // El envío usa el idioma que devolvió Meta
+      await api()
+        .post('/admin/campaigns/test-send')
+        .set(as(admin))
+        .send({ templateId: kept.id, phone: '3001112233', variables: ['Ana'] })
+        .expect(200);
+      expect(cloudApi.sendTemplate).toHaveBeenLastCalledWith('573001112233', 'cobro_preventivo', 'es_CO', ['Ana']);
+
+      // Si reaparece en Meta vuelve a su estado real; una respuesta vacía no marca nada
+      cloudApi.listTemplates.mockResolvedValueOnce([
+        graph('cobro_preventivo', 'es_CO'),
+        graph('mejora_vida_crediticia', 'es_CO', 'PENDING'),
+        graph('bienvenida', 'es'),
+      ]);
+      await api().post('/admin/templates/sync').set(as(admin)).expect(200);
+      expect(await prisma.messageTemplate.findUniqueOrThrow({ where: { id: manualEs.id } })).toMatchObject({
+        status: 'APPROVED',
+      });
+      cloudApi.listTemplates.mockResolvedValueOnce([]);
+      expect((await api().post('/admin/templates/sync').set(as(admin)).expect(200)).body.removed).toBe(0);
+      expect(await prisma.messageTemplate.count({ where: { status: 'DELETED' } })).toBe(0);
+      expect(await prisma.auditLog.count({ where: { action: 'template.sync' } })).toBe(3);
+    });
+
     it('alta manual con variables; sin opción de baja solo hay un aviso y la campaña se puede lanzar', async () => {
       const created = await api()
         .post('/admin/templates')

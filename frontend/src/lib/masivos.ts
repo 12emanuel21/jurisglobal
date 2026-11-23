@@ -427,7 +427,7 @@ export const masivosApi = {
   createTemplate: (body: TemplateInput) => apiJson<MassTemplate>('/admin/templates', json(body)),
   updateTemplate: (id: string, body: TemplateInput) => apiJson<MassTemplate>(`/admin/templates/${id}`, json(body, 'PATCH')),
   deleteTemplate: (id: string) => apiJson<{ ok: true }>(`/admin/templates/${id}`, { method: 'DELETE' }),
-  syncTemplates: () => apiJson<{ created: number; updated: number; total: number }>('/admin/templates/sync', { method: 'POST' }),
+  syncTemplates: () => apiJson<{ created: number; updated: number; removed?: number; total: number }>('/admin/templates/sync', { method: 'POST' }),
 
   campaigns: () => apiJson<{ items: CampaignSummary[]; quality: WhatsAppQuality | null }>('/admin/campaigns'),
   campaign: (id: string) => apiJson<CampaignDetail>(`/admin/campaigns/${id}`),

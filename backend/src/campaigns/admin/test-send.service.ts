@@ -21,7 +21,7 @@ import { applyOptOut } from '../../compliance/opt-out-core';
 import { WhatsAppApiError, WhatsAppCloudApi, WhatsAppNotConfiguredError } from '../../whatsapp/cloud-api.client';
 import { CLOCK, type Clock } from '../clock';
 import { CATEGORY_LABELS, META_ERROR_LABELS, classifyMetaError } from '../meta-errors';
-import { cleanParam, renderBody } from '../template-rules';
+import { cleanParam, renderBody, templateStatusProblem } from '../template-rules';
 import type { TestSendDto } from './dto';
 
 const bogotaText = (d: Date) =>
@@ -57,7 +57,7 @@ export class TestSendService {
 
     const template = await this.prisma.messageTemplate.findUnique({ where: { id: dto.templateId } });
     if (!template) throw new NotFoundException('Plantilla no encontrada');
-    if (template.status !== 'APPROVED') throw new BadRequestException('La plantilla no está aprobada en Meta');
+    if (template.status !== 'APPROVED') throw new BadRequestException(templateStatusProblem(template.status));
 
     const normalized = toColombianPhone(dto.phone);
     const phone = normalized && isColombianMobile(normalized) ? normalized : null;

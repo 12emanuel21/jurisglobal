@@ -65,7 +65,10 @@ export function TemplatesTab() {
     setFeedback(null);
     try {
       const r = await masivosApi.syncTemplates();
-      setFeedback({ ok: true, text: `Sincronizadas desde Meta: ${r.created} nuevas, ${r.updated} actualizadas.` });
+      setFeedback({
+        ok: true,
+        text: `Sincronizadas desde Meta: ${r.created} nuevas, ${r.updated} actualizadas${r.removed ? `, ${r.removed} ya no existen en Meta (quedan como eliminadas)` : ''}.`,
+      });
       setReload((n) => n + 1);
     } catch (err) {
       setFeedback({ ok: false, text: errorText(err, 'No se pudo sincronizar con Meta') });
@@ -127,7 +130,7 @@ export function TemplatesTab() {
               <div>
                 <p className="font-mono text-sm font-semibold text-navy dark:text-slate-100">{t.name}</p>
                 <p className={`text-xs ${muted}`}>
-                  {t.language} · {t.category} · {KIND_LABEL[t.purpose]} · {t.status} · {t.source === 'META' ? 'Sincronizada' : 'Manual'}
+                  {t.language} · {t.category} · {KIND_LABEL[t.purpose]} · {t.status === 'DELETED' ? 'Eliminada en Meta' : t.status} · {t.source === 'META' ? 'Sincronizada' : 'Manual'}
                 </p>
               </div>
               <div className="flex">

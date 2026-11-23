@@ -19,6 +19,7 @@ import {
   headerTextOf,
   templateLaunchProblems,
   templateWarnings,
+  DELETED_IN_META,
   type GraphTemplate,
   type TemplateButton,
 } from '../template-rules';
@@ -202,9 +203,11 @@ export class TemplatesService {
     let created = 0;
     let updated = 0;
     const now = new Date();
+    const seen = new Set<string>();
     for (const raw of remote) {
       const g = parseGraphTemplate(raw as GraphTemplate);
       if (!g.name || !g.language) continue;
+      seen.add(`${g.name}|${g.language}`);
       const current = await this.prisma.messageTemplate.findUnique({
         where: { name_language: { name: g.name, language: g.language } },
       });
@@ -231,12 +234,33 @@ export class TemplatesService {
         created++;
       }
     }
+    // La respuesta de Graph es la lista completa de la WABA: lo que no vino ya no existe en Meta
+    // (eliminada, o registrada a mano con otro nombre o idioma). Queda DELETED: no se ofrece en
+    // campañas ni pruebas y se conserva para el historial. Si reaparece, la próxima sincronización
+    // la actualiza con su estado real.
+    // Una respuesta vacía suele ser un error de configuración (otra WABA): entonces no se marca nada
+    const missing = remote.length
+      ? (await this.prisma.messageTemplate.findMany({ where: { status: { not: DELETED_IN_META } } })).filter(
+          (t) => !seen.has(`${t.name}|${t.language}`),
+        )
+      : [];
+    if (missing.length) {
+      await this.prisma.messageTemplate.updateMany({
+        where: { id: { in: missing.map((t) => t.id) } },
+        data: { status: DELETED_IN_META, lastSyncedAt: now },
+      });
+    }
     await this.audit.record({
       userId: actor.id,
       action: 'template.sync',
       entity: 'MessageTemplate',
-      data: { created, updated },
+      data: {
+        created,
+        updated,
+        removed: missing.length,
+        removedNames: missing.map((t) => `${t.name} (${t.language})`),
+      },
     });
-    return { created, updated, total: remote.length };
+    return { created, updated, removed: missing.length, total: remote.length };
   }
 }
